@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[1]
 allowed = ['src', 'include', 'boot', 'tools', 'tests', 'config', 'assets', '.github']
 if (root / '.git').is_dir():
     tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
-    root_files = {'README.md', 'WINDOWS.md', 'DEPENDENCIES.md', 'Makefile', '.gitignore'}
+    root_files = {'README.md', 'WINDOWS.md', 'DEPENDENCIES.md', 'LICENSE', 'Makefile', '.gitignore'}
     for name in filter(None, tracked):
         path = Path(name)
         if name not in root_files and path.parts[0] not in allowed:

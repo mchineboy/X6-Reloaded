@@ -13,6 +13,9 @@ The boot stage lives on the SD card; the firmware changes happen in RAM.
 Power off and remove the card to return to the stock boot path. Keep your original
 card somewhere sensible. Under a coffee mug does not count as a backup strategy.
 
+X6 Reloaded is an independent, unofficial project. It is not affiliated with or
+endorsed by the handheld's manufacturer, Allwinner, or the MAME team.
+
 ## What you bring
 
 | Input | What it needs to be |
@@ -175,3 +178,25 @@ metadata. Upstream core source and toolchains are local dependencies, with their
 own notices and terms; see [DEPENDENCIES.md](DEPENDENCIES.md). Firmware-derived
 files, ROMs, samples, build outputs, local settings, and agent instruction files
 are excluded. Do not upload your generated SD image to an issue or release.
+
+## License and distribution
+
+Original X6 Reloaded contributions are licensed under the [MIT License](LICENSE).
+This covers the project's original integration code, UI, tooling, documentation,
+pixel font, menu music and startup drawing, to the extent the contributors hold
+the applicable rights. Third-party code and modifications to it remain subject
+to the applicable upstream terms.
+
+No rights to manufacturer firmware, game ROMs, recorded samples, third-party
+artwork, or trademarks are granted. The generated SD image contains
+firmware-derived data and any locally selected games or stock modules; keep it
+private. Building from your own backup does not grant redistribution permission.
+
+The combined MAME emulator is not MIT-licensed. The pinned MAME 2000 core uses
+older terms with noncommercial and source-availability conditions, distinct from
+modern MAME licensing. See [dependency licenses and release review](DEPENDENCIES.md)
+before distributing any compiled component.
+
+The project license grants permission to use original contributions; it does not
+provide manufacturer approval or legal clearance for reverse engineering,
+firmware modifications, or third-party redistribution.
