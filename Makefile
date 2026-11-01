@@ -4,7 +4,7 @@ CLANG ?= clang
 # interpolation. Paths with spaces (or shell metacharacters) remain plain data.
 export ROMS FIRMWARE TOOLCHAIN SAMPLES GAMES CORE_SOURCE CLANG LD_LLD DISK
 
-.PHONY: help deps menuconfig scan image sdcard check check-source preview
+.PHONY: help deps menuconfig scan image verify-image sdcard check check-source preview
 help:
 	@$(PYTHON) tools/make_entry.py help
 
@@ -13,6 +13,9 @@ deps menuconfig scan image:
 
 sdcard:
 	@$(PYTHON) tools/write_sd.py
+
+verify-image:
+	@$(PYTHON) tools/verify_image.py
 
 check: check-source
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'

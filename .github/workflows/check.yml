@@ -11,3 +11,14 @@ jobs:
         with:
           python-version: '3.11'
       - run: make check
+  windows-image:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Synthetic MBR/FAT32 images, path handling and checksum checks only.
+      # No ROMs, firmware, removable drives or native Windows compiler needed.
+      - run: python -m unittest discover -s tests -p test_release.py
+      - run: python -m unittest discover -s tests -p test_image_verification.py

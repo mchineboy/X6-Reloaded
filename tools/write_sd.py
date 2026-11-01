@@ -13,6 +13,7 @@ import re
 import stat
 import subprocess
 import sys
+from verify_image import verify
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,18 +44,14 @@ def validate(disk, info, image_size):
 
 def main():
     if sys.platform != 'darwin':
-        raise ValueError('make sdcard currently supports macOS. On other hosts, write dist/X6-Reloaded.img with a disk imager.')
+        raise ValueError('make sdcard supports macOS. On Windows, see WINDOWS.md for verified image-writing methods.')
     disk = os.environ.get('DISK', '')
     if not re.fullmatch(r'/dev/disk[1-9][0-9]*', disk):
         raise ValueError('Run diskutil list first, then supply DISK=/dev/diskN. No target is selected automatically.')
     image = ROOT / 'dist/X6-Reloaded.img'
     if not image.is_file() or image.is_symlink():
         raise ValueError('Run make image first')
-    expected = (ROOT / 'dist/X6-Reloaded.img.sha256').read_text().split()[0]
-    with image.open('rb') as stream:
-        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
-    if actual != expected:
-        raise ValueError('Image checksum differs; rebuild before writing')
+    expected = verify(image)['image_sha256']
     identity = validate(disk, inspect(disk), image.stat().st_size)
     print(json.dumps(identity, indent=2))
     print('\nTHIS ERASES THE ENTIRE SELECTED SD CARD. Back up its contents first.')

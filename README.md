@@ -28,9 +28,14 @@ ROM downloader, bundled SDK, game artwork, or prebuilt emulator in this reposito
 The firmware input is needed to generate the SD boot files locally. A folder full
 of MAME ZIPs cannot supply the bootloader. Neither can enthusiasm. We checked.
 
-The build and SD writer have been exercised on Apple Silicon macOS. The build
-scripts avoid macOS-specific paths; Linux builds are not yet validated. The
-included `make sdcard` writer is macOS-only.
+**Windows card creation:** follow [the Windows guide](WINDOWS.md) to write your
+private `.img` with Raspberry Pi Imager or balenaEtcher. The card uses MBR/FAT32,
+so Windows can access its files after imaging. Copying files onto a freshly
+formatted card does not install the SD boot stage.
+
+The build and included `make sdcard` writer have been exercised on Apple Silicon
+macOS. That writer is macOS-only. The Windows guide includes a WSL2 build route;
+Linux/WSL builds and Windows card writes still need end-to-end validation.
 
 ## Build your card
 
@@ -100,6 +105,8 @@ included `make sdcard` writer is macOS-only.
    You can also write the image with a disk imager that supports raw `.img` files.
    Choose the spare SD card, not a mounted folder or a partition. On larger cards,
    the initial image leaves the extra capacity unallocated.
+   Windows users: use [Imager or Etcher](WINDOWS.md#write-the-card-on-windows)
+   instead of the `diskutil` / `make sdcard` commands above.
 
 5. Insert the card into the powered-off X6, disconnect USB, and power on.
 
