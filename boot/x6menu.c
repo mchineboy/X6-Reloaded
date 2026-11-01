@@ -1,5 +1,5 @@
 /* H5: standalone host for the arcade module.
- * Loads f:\apps\mod\fba.mod, opens the X6-ARCADE menu, runs frames, shows the
+ * Loads f:\x6\arcade.mod, opens the X6-ARCADE menu, runs frames, shows the
  * module's 320x240 ARGB buffer on a double-buffered display layer, plays its
  * 22050 Hz stereo audio through b:\AUDIO\PLAY, feeds LKeyBoardDev keys as
  * the module's button mask. Hold Menu (0x1c3) ~1 s to quit back to boot.esh. */
@@ -263,7 +263,7 @@ int main(void *arg)
     kh = kgrab_("LKeyBoardDev", key_cb);
     say("keys", kh);
 
-    mid = mod_install_("f:\\apps\\mod\\fba.mod", 0);
+    mid = mod_install_("f:\\x6\\arcade.mod", 0);
     say("mod_id", mid);
     mh = mid ? mod_open_(mid & 0xff, 0) : 0;
     say("mod_handle", mh);

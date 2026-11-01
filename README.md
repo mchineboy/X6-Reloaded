@@ -73,6 +73,10 @@ included `make sdcard` writer is macOS-only.
    boot payload. Rebuilding starts with a fresh ROM staging folder, so deselected
    games do not come along for the ride.
 
+   Runtime files live under `x6/`: `arcade.mod`, `x6menu.axf` and `boot.esh`.
+   This keeps Reloaded separate from the stock `apps/mod/fba.mod` during
+   file-based updates. The full-image writer below still erases its target card.
+
    ROMs are verified by size and CRC, then rebuilt under the filenames expected
    by 0.37b5. Your source ZIPs stay untouched. This can repack matching data and
    perform the narrowly checked Donkey Kong PROM conversion; it cannot invent

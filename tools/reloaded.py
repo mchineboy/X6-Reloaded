@@ -130,9 +130,8 @@ def build(args):
     if staging.exists():
         shutil.rmtree(staging)
     (staging / 'game/cps/samples').mkdir(parents=True)
-    (staging / 'apps/mod').mkdir(parents=True)
     (staging / 'x6').mkdir(parents=True)
-    shutil.copyfile(out / 'module/x6-dkong.experimental.elf', staging / 'apps/mod/fba.mod')
+    shutil.copyfile(out / 'module/x6-dkong.experimental.elf', staging / 'x6/arcade.mod')
     shutil.copyfile(boot / 'x6menu.axf', staging / 'x6/x6menu.axf')
     script = r'''insmod \\drv\\matrixkey.drv
 run f:\\x6\\x6menu.axf /w
@@ -149,7 +148,8 @@ startx
     sample_names = {'dkong': ['effect00.wav', 'effect01.wav', 'effect02.wav'],
                     'dkongjr': ['jump.wav', 'land.wav', 'roar.wav', 'climb.wav', 'death.wav', 'drop.wav', 'walk.wav', 'snapjaw.wav'],
                     'galaga': ['bang.wav', 'init.wav'], 'xevious': ['explo1.wav', 'explo2.wav'],
-                    'galaxian': ['shot.wav', 'death.wav']}
+                    'galaxian': ['shot.wav', 'death.wav'],
+                    'bosco': ['midbang.wav', 'bigbang.wav', 'shot.wav']}
     sample_report = []
     for game in config['games']:
         if game not in sample_names:
