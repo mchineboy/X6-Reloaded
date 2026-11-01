@@ -1,8 +1,9 @@
-# X6 Reloaded
+# X6 Reloaded — alternative X6 handheld firmware (SD boot)
 
 More arcade. Less mystery meat menu.
 
-X6 Reloaded boots a replacement arcade interface from an SD card on the tested
+X6 Reloaded is an SD-boot alternative to the stock X6 handheld firmware interface,
+with a custom arcade launcher built around MAME 2000. It targets the tested
 Allwinner F1C200S X6 handheld. Pick your games, build your card, power it on.
 The menu, music, pause screen, difficulty settings and rapid fire are all there.
 Now the thing even knows its own name.
