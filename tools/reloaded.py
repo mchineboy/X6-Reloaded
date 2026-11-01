@@ -13,6 +13,7 @@ from core import ROOT, UPSTREAM, prepare
 from audit_mame_roms import locate_driver, requirements, matching_bytes, audit
 import firmware
 import sdimage
+import stock
 
 CONFIG = ROOT / '.config.json'
 
@@ -52,19 +53,25 @@ def configure(args):
         if not previous.get(key):
             raise ValueError('Missing ' + key.upper() + '; supply it to make menuconfig')
     firmware.extract_stock(Path(previous['firmware']))
+    if args.stock_backup:
+        if str(args.stock_backup) == 'none':
+            previous.pop('stock_backup', None)
+        else:
+            stock.inspect(args.stock_backup)
+            previous['stock_backup'] = str(args.stock_backup.expanduser().resolve())
     if not (Path(previous['toolchain']) / 'bin/arm-none-eabi-gcc').is_file():
         raise ValueError('TOOLCHAIN must contain bin/arm-none-eabi-gcc')
     prepare(args.core_source)
     rows = scan(Path(previous['roms']))
     ready = [r['game'] for r in rows if r['available']]
-    if not ready:
+    if not ready and args.games != 'none':
         for row in rows:
             print(row['game'] + ': ' + row['reason'])
         raise ValueError('No compatible games found; these must match MAME 0.37b5 checksums')
     if args.games:
-        selected = args.games.split(',') if args.games != 'all' else ready
+        selected = [] if args.games == 'none' else args.games.split(',') if args.games != 'all' else ready
         if len(set(selected)) != len(selected) or not set(selected) <= set(ready):
-            raise ValueError('GAMES must contain unique available short names, or all')
+            raise ValueError('GAMES must contain unique available short names, all, or none')
     else:
         if not sys.stdin.isatty():
             raise ValueError('menuconfig needs a terminal; use GAMES=all or GAMES=dkong,galaga for scripts')
@@ -95,7 +102,7 @@ def configure(args):
                         selected.remove(game)
                     else:
                         selected.append(game)
-    if not selected:
+    if not selected and args.games != 'none':
         raise ValueError('Select at least one compatible game')
     previous['games'] = [g for g in ready if g in selected]
     CONFIG.write_text(json.dumps(previous, indent=2) + '\n')
@@ -104,6 +111,11 @@ def configure(args):
 
 def build(args):
     config = load_config()
+    stock_backup = args.stock_backup if args.stock_backup is not None else config.get('stock_backup')
+    if str(stock_backup) == 'none':
+        stock_backup = None
+    if stock_backup:
+        stock.inspect(stock_backup)
     prepare(args.core_source)
     roms = Path(config['roms'])
     # Re-audit the selection before invoking a compiler or touching outputs.
@@ -112,10 +124,10 @@ def build(args):
         if not row['available']:
             raise ValueError(game + ': ' + row['reason'])
     manifest = json.loads((ROOT / 'config/mame2000-arcade.json').read_text())
-    manifest['drivers'] = config['games']
+    # Selection controls image contents, never the emulator's supported pool.
     out = ROOT / 'build'
     out.mkdir(exist_ok=True)
-    profile = out / 'selected.json'
+    profile = out / 'supported.json'
     profile.write_text(json.dumps(manifest, indent=2) + '\n')
     command = [sys.executable, str(ROOT / 'tools/build_module.py'), '--manifest', str(profile),
                '--toolchain', config['toolchain'], '--fast', '--altbeast-target-rate',
@@ -130,6 +142,19 @@ def build(args):
     if staging.exists():
         shutil.rmtree(staging)
     (staging / 'game/cps/samples').mkdir(parents=True)
+    (staging / 'roms/mame/samples').mkdir(parents=True)
+    (staging / 'roms/original').mkdir(parents=True)
+    (staging / 'roms/mame/README.TXT').write_text(
+        'Copy supported MAME 2000 / 0.37b5 game-name ZIPs here, then reboot.\n'
+        'Samples go in the samples subfolder. Unsupported drivers need a core update.\n'
+        'Other ROM files appear grey with a reason and cannot launch.\n'
+        'Supported short names: ' + ', '.join(manifest['drivers']) + '\n')
+    (staging / 'roms/original/README.TXT').write_text(
+        'Copy compatible original-X6 .fba packs or original-FBA game-name ZIPs here, then reboot.\n'
+        'Requires your original FBA module under x6/stock/fba.mod.\n'
+        'Legacy game/mame packed games and x6/stock trial games are also discovered.\n'
+        'Invalid files and unsupported formats appear grey and cannot launch.\n'
+        'Recognized headers are not a compatibility guarantee: ROM set unverified.\n')
     (staging / 'x6').mkdir(parents=True)
     shutil.copyfile(out / 'module/x6-dkong.experimental.elf', staging / 'x6/arcade.mod')
     shutil.copyfile(boot / 'x6menu.axf', staging / 'x6/x6menu.axf')
@@ -138,10 +163,11 @@ run f:\\x6\\x6menu.axf /w
 startx
 '''.replace('\n', '\r\n').encode('ascii')
     (staging / 'x6/boot.esh').write_bytes(script)
+    stock_report = stock.stage(stock_backup, staging) if stock_backup else None
     reports = []
     for game in config['games']:
         source = UPSTREAM / 'src/drivers' / locate_driver(UPSTREAM, game)
-        reports.append(audit(roms / (game + '.zip'), source, game, staging / 'game/cps' / (game + '.zip')))
+        reports.append(audit(roms / (game + '.zip'), source, game, staging / 'roms/mame' / (game + '.zip')))
     samples = Path(config.get('samples') or roms / 'samples')
     # Samples are optional local recordings, never fetched. Keep the explicit list
     # small; filenames are what these pinned drivers actually request.
@@ -160,7 +186,7 @@ startx
                 requested = sample_names[game]
                 names = {Path(n).name.lower(): n for n in archive.namelist()}
                 missing = [n for n in requested if n not in names]
-                target = staging / 'game/cps/samples' / (game + '.zip')
+                target = staging / 'roms/mame/samples' / (game + '.zip')
                 with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as output:
                     for name in requested:
                         if name in names:
@@ -180,7 +206,9 @@ startx
         checksum = hashlib.file_digest(stream, 'sha256').hexdigest()
     (ROOT / 'dist/X6-Reloaded.img.sha256').write_text(checksum + '  X6-Reloaded.img\n')
     (out / 'image-report.json').write_text(json.dumps({'geometry': geometry, 'roms': reports,
-        'samples': sample_report, 'image_sha256': checksum, 'hardware_tested': False,
+        'samples': sample_report, 'stock_trial': stock_report,
+        'selected_games': config['games'], 'compiled_drivers': manifest['drivers'],
+        'image_sha256': checksum, 'hardware_tested': False,
         'firmware_sha256': hashlib.sha256(Path(config['firmware']).read_bytes()).hexdigest()}, indent=2) + '\n')
     print('\nBuilt ' + str(target))
     print('Local build complete. No card or internal firmware was written.')
@@ -192,6 +220,8 @@ def main():
     for name in ['roms', 'firmware', 'toolchain', 'samples', 'core-source']:
         parser.add_argument('--' + name, type=Path)
     parser.add_argument('--games')
+    parser.add_argument('--stock-backup', type=Path,
+                        help='optional original-card backup for the FBA trial; none disables it')
     parser.add_argument('--cc', default='clang')
     parser.add_argument('--ld')
     args = parser.parse_args()

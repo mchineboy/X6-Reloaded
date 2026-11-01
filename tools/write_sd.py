@@ -43,20 +43,28 @@ def validate(disk, info, image_size):
 
 
 def main():
+    fel = sys.argv[1:] == ['--fel']
+    if sys.argv[1:] and not fel:
+        raise ValueError('Only --fel is supported; see make help')
     if sys.platform != 'darwin':
         raise ValueError('make sdcard supports macOS. On Windows, see WINDOWS.md for verified image-writing methods.')
     disk = os.environ.get('DISK', '')
     if not re.fullmatch(r'/dev/disk[1-9][0-9]*', disk):
         raise ValueError('Run diskutil list first, then supply DISK=/dev/diskN. No target is selected automatically.')
-    image = ROOT / 'dist/X6-Reloaded.img'
+    image = ROOT / ('dist/X6-FEL.img' if fel else 'dist/X6-Reloaded.img')
     if not image.is_file() or image.is_symlink():
-        raise ValueError('Run make image first')
-    expected = verify(image)['image_sha256']
+        raise ValueError('Run make fel-image first' if fel else 'Run make image first')
+    if fel:
+        from backup import verify_fel
+        expected = verify_fel(image)['image_sha256']
+    else:
+        expected = verify(image)['image_sha256']
     identity = validate(disk, inspect(disk), image.stat().st_size)
     print(json.dumps(identity, indent=2))
     print('\nTHIS ERASES THE ENTIRE SELECTED SD CARD. Back up its contents first.')
     if os.geteuid() != 0:
-        raise ValueError('Writing needs root. After checking the identity above, run: sudo make sdcard DISK=' + disk)
+        target = 'fel-sdcard' if fel else 'sdcard'
+        raise ValueError('Writing needs root. After checking the identity above, run: sudo make ' + target + ' DISK=' + disk)
     phrase = f"ERASE {disk} {identity['TotalSize']}"
     if input('\nType exactly ' + phrase + ': ') != phrase:
         raise ValueError('Cancelled; no writes performed')
@@ -82,11 +90,14 @@ def main():
             left -= len(chunk)
         if readback.hexdigest() != expected:
             raise ValueError('SD readback checksum differs; do not boot this card')
-    report = ROOT / 'build/sd-write.json'
+    report = ROOT / ('build/fel-sd-write.json' if fel else 'build/sd-write.json')
     report.write_text(json.dumps({'target': identity, 'image_sha256': expected,
                                   'verified': True}, indent=2) + '\n')
     subprocess.run(['diskutil', 'eject', disk], check=True)
-    print('SD image verified and ejected. Insert it into the powered-off X6; unplug USB before booting.')
+    if fel:
+        print('FEL card verified and ejected. Follow BACKUP.md to boot and connect the X6.')
+    else:
+        print('SD image verified and ejected. Insert it into the powered-off X6; unplug USB before booting.')
 
 if __name__ == '__main__':
     try:

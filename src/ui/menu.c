@@ -7,6 +7,7 @@
 #define TEXT 0xffffffffu
 #define TEXT_DIM 0xffd6dbeeu
 #define TEXT_FAINT 0xff9ca4c4u
+#define TEXT_DISABLED 0xffa0a0a0u
 #define ACCENT 0xffff4d6au
 #define WARN 0xffffbe4cu
 #define PANEL 0xf0c42a49u
@@ -95,14 +96,31 @@ void x6_menu_notice(struct x6_menu *m, const char *text)
     m->notice_frames = m->notice[0] ? NOTICE_FRAMES : 0;
 }
 
+void x6_menu_location(struct x6_menu *m, const char *location, uint32_t can_back)
+{
+    copy_text(m->location, sizeof m->location, location);
+    m->can_back = can_back != 0;
+}
+
 static void move(struct x6_menu *m, int32_t step, uint32_t wrap)
 {
     if (!m->count || !step) return;
     int32_t next = (int32_t)m->selected + step, last = (int32_t)m->count - 1;
     if (next < 0) next = wrap && m->selected == 0 ? last : 0;
     if (next > last) next = wrap && (int32_t)m->selected == last ? 0 : last;
+    if (m->selected != (uint32_t)next) m->notice_frames = 0;
     m->selected = (uint32_t)next;
     m->target_scroll = target_scroll(m);
+}
+
+static const char *disabled_reason(uint8_t state)
+{
+    switch (state) {
+    case X6_GAME_UNSUPPORTED: return "No driver in this MAME build";
+    case X6_GAME_INVALID: return "Empty, unreadable or invalid ROM file";
+    case X6_GAME_FORMAT: return "Unsupported file format or ROM name";
+    default: return "ROM file is missing";
+    }
 }
 
 enum x6_menu_action x6_menu_update(struct x6_menu *m, uint32_t mask)
@@ -117,16 +135,19 @@ enum x6_menu_action x6_menu_update(struct x6_menu *m, uint32_t mask)
     else if (steer & X6_BTN_DOWN) move(m, 1, pressed != 0);
     else if (steer & X6_BTN_LEFT) move(m, -VISIBLE_ROWS, 0);
     else if (steer & X6_BTN_RIGHT) move(m, VISIBLE_ROWS, 0);
-    if (pressed & (X6_BTN_A | X6_BTN_START) && m->count) {
+    if ((pressed & X6_BTN_B) && m->can_back) action = X6_MENU_BACK;
+    else if (pressed & (X6_BTN_A | X6_BTN_START) && m->count) {
         const struct x6_game *game = &m->games[m->selected];
-        if (game->available) {
+        if (game->available == X6_GAME_READY) {
             action = X6_MENU_LAUNCH;
         } else {
-            char text[48];
-            uint32_t used = append(text, 0, sizeof(text), "Missing ROM: ");
-            used = append(text, used, sizeof(text), game->id);
-            append(text, used, sizeof(text), ".zip");
-            x6_menu_notice(m, text);
+            if (game->available == X6_GAME_MISSING) {
+                char text[48];
+                uint32_t used = append(text, 0, sizeof(text), "Missing ROM: ");
+                used = append(text, used, sizeof(text), game->id);
+                append(text, used, sizeof(text), ".zip");
+                x6_menu_notice(m, text);
+            } else x6_menu_notice(m, disabled_reason(game->available));
             m->nudge_frames = NUDGE_FRAMES;
         }
     }
@@ -157,7 +178,12 @@ static void draw_background(struct x6_surface *s)
 static void draw_header(struct x6_surface *s, const struct x6_menu *m)
 {
     x6_gfx_disc(s, MARGIN + 3, 20, 3, ACCENT);
-    x6_text_draw(s, MARGIN + 12, 13, "X6 Reloaded", 2, TEXT);
+    x6_text_draw(s, MARGIN + 12, m->location[0] ? 7 : 13, "X6 Reloaded", 2, TEXT);
+    if (m->location[0]) {
+        char path[48];
+        fit_text(path, sizeof path, m->location, 1, LIST_W);
+        x6_text_draw(s, MARGIN, 27, path, 1, TEXT_DIM);
+    }
     if (m->count) {
         char count[24];
         uint32_t used = 0, n = m->selected + 1, total = m->count;
@@ -177,18 +203,31 @@ static void draw_row(struct x6_surface *list, const struct x6_game *game, int32_
 {
     int32_t right = MARGIN + LIST_W - 6;
     int32_t tag_w = 0;
-    if (!game->available) {
-        tag_w = x6_text_width("NO ROM", 1) + 10;
-        x6_gfx_round_rect(list, right - tag_w, y + 9, tag_w, 13, 4, 0x26f5b14cu);
-        x6_text_draw(list, right - tag_w + 5, y + 12, "NO ROM", 1, WARN);
+    if (game->folder) {
+        tag_w = x6_text_width(game->year, 1) + 14;
+        x6_text_draw(list, right - tag_w, y + 12, game->year, 1, selected ? TEXT : TEXT_FAINT);
+        x6_text_draw(list, right - 5, y + 12, ">", 1, TEXT);
+    } else if (game->available != X6_GAME_READY) {
+        const char *tag = game->available == X6_GAME_UNSUPPORTED ? "UNSUPPORTED"
+            : game->available == X6_GAME_INVALID ? "INVALID"
+            : game->available == X6_GAME_FORMAT ? "FORMAT" : "NO ROM";
+        tag_w = x6_text_width(tag, 1) + 10;
+        x6_gfx_round_rect(list, right - tag_w, y + 9, tag_w, 13, 4, 0x26808080u);
+        x6_text_draw(list, right - tag_w + 5, y + 12, tag, 1, TEXT_DISABLED);
     } else if (game->year[0]) {
         tag_w = x6_text_width(game->year, 1);
         x6_text_draw(list, right - tag_w, y + 12, game->year, 1, selected ? TEXT : TEXT_FAINT);
     }
     char title[40];
-    fit_text(title, sizeof(title), game->title, 2, LIST_W - 12 - tag_w - 12);
-    uint32_t color = selected ? TEXT : game->available ? TEXT_DIM : TEXT_FAINT;
-    x6_text_draw(list, MARGIN + 6, y + 8, title, 2, color);
+    int32_t left = game->folder ? 28 : 6;
+    fit_text(title, sizeof(title), game->title, 2, LIST_W - left - tag_w - 12);
+    uint32_t color = game->available != X6_GAME_READY ? TEXT_DISABLED : selected ? TEXT : TEXT_DIM;
+    if (game->folder) {
+        x6_gfx_fill(list, MARGIN + 6, y + 9, 7, 3, WARN);
+        x6_gfx_round_rect(list, MARGIN + 6, y + 11, 15, 11, 2, WARN);
+        x6_gfx_fill(list, MARGIN + 8, y + 14, 11, 1, 0xff80592cu);
+    }
+    x6_text_draw(list, MARGIN + left, y + 8, title, 2, color);
 }
 
 static void draw_details(struct x6_surface *s, const struct x6_menu *m)
@@ -200,8 +239,21 @@ static void draw_details(struct x6_surface *s, const struct x6_menu *m)
     }
     const struct x6_game *g = &m->games[m->selected];
     char line[64];
+    if (g->available != X6_GAME_READY) {
+        fit_text(line, sizeof line, disabled_reason(g->available), 1, LIST_W);
+        x6_text_draw(s, MARGIN, DETAIL_Y + 2, line, 1, TEXT_DIM);
+        const char *name = g->path[0] ? g->path : g->id;
+        for (const char *p = name; *p; ++p) if (*p == '/' || *p == '\\') name = p + 1;
+        fit_text(line, sizeof line, name, 1, LIST_W);
+        x6_text_draw(s, MARGIN, DETAIL_Y + 18, line, 1, TEXT_DISABLED);
+        return;
+    }
     fit_text(line, sizeof(line), g->maker[0] ? g->maker : "Unknown maker", 1, LIST_W);
     x6_text_draw(s, MARGIN, DETAIL_Y + 2, line, 1, TEXT_DIM);
+    if (g->folder) {
+        x6_text_draw(s, MARGIN, DETAIL_Y + 18, "A or START opens this folder", 1, TEXT_FAINT);
+        return;
+    }
     const char *parts[4] = {g->year, g->vertical ? "Vertical" : "Horizontal", g->variant,
                             g->imperfect ? "Imperfect emulation" : ""};
     int32_t x = MARGIN;
@@ -212,23 +264,23 @@ static void draw_details(struct x6_surface *s, const struct x6_menu *m)
     }
 }
 
-static void draw_footer(struct x6_surface *s, uint32_t count)
+static void draw_footer(struct x6_surface *s, const struct x6_menu *m)
 {
     x6_gfx_fill(s, 0, FOOTER_Y, X6_UI_WIDTH, X6_UI_HEIGHT - FOOTER_Y, SHADE);
     x6_gfx_fill(s, 0, FOOTER_Y, X6_UI_WIDTH, 1, RULE);
     int32_t x = MARGIN, y = FOOTER_Y + 7;
-    if (count) {
-        keycap(s, &x, y, "A", "Play");
-        keycap(s, &x, y, "UP/DOWN", "Browse");
-        keycap(s, &x, y, "SELECT", "Settings");
-    }
+    if (m->count) keycap(s, &x, y, "A", m->games[m->selected].folder ? "Open"
+        : m->games[m->selected].available == X6_GAME_READY ? "Play" : "Info");
+    if (m->can_back) keycap(s, &x, y, "B", "Back");
+    else if (m->count) keycap(s, &x, y, "UP/DOWN", "Browse");
+    if (m->count || m->can_back) keycap(s, &x, y, "SELECT", "Settings");
 }
 
 static void draw_empty(struct x6_surface *s)
 {
     static const char title[] = "No games yet";
-    static const char line1[] = "Copy MAME 0.37b5 ROM zips into";
-    static const char line2[] = "the same folder as X6-ARCADE.zip";
+    static const char line1[] = "Add supported ZIPs to roms/mame";
+    static const char line2[] = "Then reboot to refresh the library";
     x6_text_draw(s, (X6_UI_WIDTH - x6_text_width(title, 2)) / 2, 92, title, 2, TEXT);
     x6_text_draw(s, (X6_UI_WIDTH - x6_text_width(line1, 1)) / 2, 122, line1, 1, TEXT_DIM);
     x6_text_draw(s, (X6_UI_WIDTH - x6_text_width(line2, 1)) / 2, 134, line2, 1, TEXT_DIM);
@@ -238,13 +290,16 @@ void x6_menu_draw(const struct x6_menu *m, struct x6_surface *s)
 {
     draw_background(s);
     draw_header(s, m);
-    if (!m->count) {draw_empty(s);draw_footer(s, 0);return;}
+    if (!m->count) {draw_empty(s);draw_footer(s, m);return;}
     struct x6_surface list = {s->pixels + LIST_TOP * s->pitch, s->width, VISIBLE_ROWS * ROW_H, s->pitch};
     int32_t scroll = m->scroll_q8 / 256;
     int32_t shake = m->nudge_frames ? ((m->nudge_frames & 2u) ? 3 : -3) : 0;
     int32_t cy = m->cursor_q8 / 256 - scroll;
-    x6_gfx_round_rect(&list, MARGIN - 6 + shake, cy + 2, LIST_W + 12, ROW_H - 4, 8, PANEL);
-    x6_gfx_round_rect(&list, MARGIN - 6 + shake, cy + 9, 3, ROW_H - 18, 1, TEXT);
+    uint32_t disabled = m->games[m->selected].available != X6_GAME_READY;
+    x6_gfx_round_rect(&list, MARGIN - 6 + shake, cy + 2, LIST_W + 12, ROW_H - 4, 8,
+        disabled ? 0xff282b32u : PANEL);
+    x6_gfx_round_rect(&list, MARGIN - 6 + shake, cy + 9, 3, ROW_H - 18, 1,
+        disabled ? TEXT_DISABLED : TEXT);
     for (uint32_t i = 0; i < m->count; ++i) {
         int32_t y = (int32_t)i * ROW_H - scroll;
         if (y <= -ROW_H || y >= VISIBLE_ROWS * ROW_H) continue;
@@ -260,7 +315,7 @@ void x6_menu_draw(const struct x6_menu *m, struct x6_surface *s)
     }
     x6_gfx_fill(s, MARGIN, DETAIL_Y - 6, LIST_W, 1, RULE);
     draw_details(s, m);
-    draw_footer(s, m->count);
+    draw_footer(s, m);
 }
 
 void x6_ui_draw_loading(struct x6_surface *s, const struct x6_game *game)

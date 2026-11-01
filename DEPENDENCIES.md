@@ -31,6 +31,14 @@ terms. Preserve all upstream copyright and license notices.
   chain; the supplied backup is only read as an ordinary host file.
 - ROMs and samples: supplied locally by the user. Repacking and matching checksums
   do not change their ownership or distribution terms.
+- FEL backup tools: [XFEL](https://github.com/xboot/xfel) at
+  `445e8aefe6914c85817cc9bd1d201629364b0ec6` (upstream MIT) and
+  [sunxi-tools](https://github.com/linux-sunxi/sunxi-tools) at
+  `a08a24a2aa5804bde7fa6ea8cdb08135d018da33`. The latter's `fel-sdboot.S`
+  retains its upstream GPL-2.0-or-later notices in the local source copy.
+  These sources and generated helper binaries are not vendored here. The
+  project's MIT license does not relicense the compiled recovery helper.
+  See [the backup guide](BACKUP.md) for the local build and provenance check.
 
 No license is assigned here to third-party material. The UI pixel font, menu
 music, startup drawing and integration tools are project source; their inclusion

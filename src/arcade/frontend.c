@@ -17,6 +17,8 @@
 #include "libretro.h"
 #include "x6_arcade.h"
 #include "x6_catalog.h"
+#include "x6_host_services.h"
+#include "x6_browser.h"
 #include "x6_monitor.h"
 #include "x6_timing.h"
 #include "x6_ui.h"
@@ -40,7 +42,7 @@ static uint32_t area_ready;
 #define RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE (81 | 0x10000)
 #endif
 
-enum mode { MODE_IDLE, MODE_MENU, MODE_LOADING, MODE_GAME, MODE_PAUSE, MODE_SETTINGS };
+enum mode { MODE_IDLE, MODE_MENU, MODE_LOADING, MODE_GAME, MODE_PAUSE, MODE_SETTINGS, MODE_HANDOFF };
 
 static struct x6_host_callbacks callbacks;
 static volatile uint32_t buttons[5];
@@ -86,11 +88,6 @@ static void prime_audio(void) {
 /* ---- Global settings (f:/x6/settings.bin) and the optional X6 host services ----
  * The standalone X6 shell passes "X6HOST1" + a pointer to x6_host_services in
  * resource_path; the stock launcher passes a plain path, so these stay unused there. */
-struct x6_host_services {
-    uint32_t version;
-    void (*set_brightness)(uint32_t level);                 /* 0..15, stock LCD levels */
-    void (*set_idle)(uint32_t blank_seconds, uint32_t off_seconds);  /* 0 = never */
-};
 static const struct x6_host_services *host_services;
 struct x6_settings { uint8_t magic, version, music, clicks, brightness, blank, poweroff, reserved; };
 static struct x6_settings settings = {0x58, 1, X6_TUNE_TECHNO, 1, 12, 0, 0, 0};
@@ -147,8 +144,15 @@ static uint32_t game_start_tick, hold_start_tick, holding;
 static uint32_t pause_selected, pause_dim, pause_prev, pause_note;
 static uint32_t ticks_as_frames(uint32_t ticks) {return ticks > 0x7fffffffu / 60u ? 0x7fffffffu : ticks * 60u / X6_TICK_HZ;}
 static struct x6_game games[X6_CATALOG_MAX];
+static struct x6_game stock_games[X6_CATALOG_MAX];
 static uint32_t game_count, current_game, portrait;
 static struct x6_menu menu;
+static struct x6_browser browser;
+static uint32_t launch_library, launch_game;
+static uint32_t menu_prev_buttons, settings_selected, settings_prev;
+static const struct x6_game stock_game = {
+    .id = "2020bb", .title = "2020 Super Baseball", .maker = "Stock arcade library", .available = 1
+};
 
 static uint32_t copy_path(char *out, uint32_t capacity, const char *in, uint32_t limit)
 {
@@ -402,7 +406,11 @@ static void dip_set(uint32_t index)
 static uint32_t dip_path(char *out, uint32_t capacity, const char *id)
 {
     uint32_t n = 0;
-    for (; rom_directory[n] && n + 1 < capacity; ++n) out[n] = rom_directory[n];
+    char directory[PATH_SIZE];
+    const char *base = rom_directory;
+    if (current_game < game_count && games[current_game].path[0]
+        && parent_directory(directory, games[current_game].path)) base = directory;
+    for (; base[n] && n + 1 < capacity; ++n) out[n] = base[n];
     if (n + 1 < capacity) out[n++] = '/';
     for (const char *c = id; *c && n + 1 < capacity; ++c) out[n++] = *c;
     for (const char *c = ".x6d"; *c && n + 1 < capacity; ++c) out[n++] = *c;
@@ -439,6 +447,7 @@ static void dip_save(const char *id)
 /* Start games[index] from rom_path. Returns 0, or -1 with error set. */
 static int32_t start_game(uint32_t index)
 {
+    if (index >= game_count || games[index].available != X6_GAME_READY) {error = 1;return -1;}
     current_game = index;
     retro_set_environment(environment);retro_set_video_refresh(video);
     retro_set_audio_sample_batch(audio);retro_set_input_poll(poll);retro_set_input_state(input);
@@ -465,16 +474,25 @@ static int32_t start_game(uint32_t index)
     return 0;
 }
 
-static void open_menu(uint32_t selected)
+static void open_browser(void)
 {
-    x6_menu_init(&menu, games, game_count, selected);
+    x6_menu_init(&menu, browser.entries, browser.count, browser.selected);
+    x6_menu_location(&menu, browser.location, browser.level != X6_BROWSER_ROOT);
+    menu_prev_buttons = buttons[0];
     mode = MODE_MENU;loading_shown = 0;x6_music_reset();
     x6_pacer_reset(&pacer);
+}
+
+static void open_menu(uint32_t game_index)
+{
+    x6_browser_focus(&browser, X6_LIBRARY_MAME, game_index);
+    open_browser();
 }
 
 /* Build rom_path as <rom_directory>/<id>.zip for a menu choice. */
 static uint32_t menu_rom_path(const struct x6_game *game)
 {
+    if (game->path[0]) return copy_path(rom_path, sizeof rom_path, game->path, sizeof game->path);
     uint32_t n = 0;
     for (; rom_directory[n] && n < PATH_SIZE - 1; ++n) rom_path[n] = rom_directory[n];
     const char *parts[3] = {"/", game->id, ".zip"};
@@ -524,7 +542,7 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
         const struct x6_host_services *svc;
         const uint8_t *src = (const uint8_t *)host->resource_path + 8;uint8_t *dst = (uint8_t *)&svc;
         for (uint32_t i = 0; i < sizeof svc; ++i) dst[i] = src[i];
-        if (svc && svc->version == 1) host_services = svc;
+        if (svc && svc->version >= 1 && svc->version <= 5) host_services = svc;
         copy_path(resource_path, sizeof(resource_path), rom_directory, PATH_SIZE);
     } else if (host->resource_path[0]) {
         if (!copy_path(resource_path, sizeof(resource_path), host->resource_path, sizeof(host->resource_path))) {
@@ -535,15 +553,39 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
     }
     const char *name = base_name(rom_path);
     uint32_t menu_entry = same_name(name, "x6-arcade.zip");
-    game_count = x6_catalog_build(games, X6_CATALOG_MAX, rom_directory);
+    game_count = x6_catalog_scan(games, X6_CATALOG_MAX, rom_directory,
+        host_services && host_services->version >= 5 ? host_services->walk_directory : 0);
+    uint32_t stock_count = 0;
+    if (menu_entry && host_services && host_services->version >= 4 && host_services->stock_count
+        && host_services->stock_metadata && host_services->request_stock_game) {
+        stock_count = host_services->stock_count();
+        if (stock_count > X6_CATALOG_MAX) stock_count = X6_CATALOG_MAX;
+        for (uint32_t i = 0; i < stock_count; ++i)
+            if (host_services->stock_metadata(i, &stock_games[i]) != 0) {stock_count = 0;break;}
+    } else if (menu_entry && host_services && host_services->version >= 2
+        && host_services->stock_available && host_services->request_stock && host_services->stock_available()) {
+        stock_count = 1;stock_games[0] = stock_game; /* Compatibility with preceding hosts. */
+    }
     uint32_t index = game_count;
     if (!menu_entry)
         for (uint32_t i = 0; i < game_count; ++i) if (names_driver(name, games[i].id)) {index = i;break;}
-    if (!menu_entry && index == game_count) {error = 1;game_count = 0;return -1;}
+    if (!menu_entry && (index == game_count || games[index].available != X6_GAME_READY)) {
+        error = 1;game_count = 0;return -1;
+    }
     callbacks.submit_audio = host->submit_audio;
     callbacks.get_output_buffer = host->get_output_buffer;
     for (uint32_t i = 0; i < 5; ++i) buttons[i] = 0;
-    if (menu_entry) {from_menu = 1;settings_load();open_menu(0);return 0;}
+    if (menu_entry) {
+        from_menu = 1;settings_load();
+        x6_browser_init(&browser, games, game_count, stock_games, stock_count);
+        if (stock_count && host_services && host_services->version >= 3 && host_services->restore_library
+            && host_services->restore_library() == 2) {
+            uint32_t index = host_services->version >= 4 && host_services->restore_stock_game
+                ? host_services->restore_stock_game() : 0;
+            x6_browser_focus(&browser, X6_LIBRARY_STOCK, index);
+        }
+        open_browser();return 0;
+    }
     from_menu = 0;
     if (start_game(index)) {
         int32_t failure = error;
@@ -572,23 +614,30 @@ static uint32_t *surface_for_frame(struct x6_surface *s)
     return pixels;
 }
 
-static uint32_t menu_prev_buttons, settings_selected, settings_prev;
 static void frame_menu(uint32_t render)
 {
     struct x6_surface s;
     uint32_t before = menu.selected;
     uint32_t pressed = buttons[0] & ~menu_prev_buttons;menu_prev_buttons = buttons[0];
     if (pressed & X6_BTN_SELECT) {                         /* Select: settings screen */
+        browser.selected = menu.selected;
         mode = MODE_SETTINGS;settings_selected = 0;settings_prev = buttons[0];ui_click();
         music_frame(settings.music);
         return;
     }
-    if (x6_menu_update(&menu, buttons[0]) == X6_MENU_LAUNCH) {
-        mode = MODE_LOADING;loading_shown = 0;ui_click();
+    enum x6_menu_action action = x6_menu_update(&menu, buttons[0]);
+    if (action == X6_MENU_BACK) {
+        if (x6_browser_back(&browser, menu.selected)) {open_browser();ui_click();}
+    } else if (action == X6_MENU_LAUNCH) {
+        enum x6_browser_action chosen = x6_browser_choose(&browser, menu.selected, &launch_game);
+        if (chosen == X6_BROWSER_ENTER) {open_browser();ui_click();}
+        else if (chosen == X6_BROWSER_PLAY) {
+            launch_library = browser.library;mode = MODE_LOADING;loading_shown = 0;ui_click();
+        }
     }
     if (menu.selected != before) ui_click();
     if (render && surface_for_frame(&s)) {
-        if (mode == MODE_LOADING) {x6_ui_draw_loading(&s, &games[menu.selected]);loading_shown = 1;}
+        if (mode == MODE_LOADING) {x6_ui_draw_loading(&s, &browser.entries[menu.selected]);loading_shown = 1;}
         else x6_menu_draw(&menu, &s);
     }
     music_frame(mode == MODE_MENU ? settings.music : X6_TUNE_OFF);   /* clicks still play while loading starts */
@@ -616,7 +665,7 @@ static void frame_settings(uint32_t render)
         settings_apply();ui_click();
     }
     if (pressed & (X6_BTN_B | X6_BTN_SELECT)) {
-        settings_save();ui_click();open_menu(menu.selected);
+        settings_save();ui_click();open_browser();
         music_frame(settings.music);
         return;
     }
@@ -654,13 +703,19 @@ static void frame_loading(uint32_t render)
 {
     struct x6_surface s;
     if (!loading_shown) { /* Show the loading screen before the blocking load. */
-        if (render && surface_for_frame(&s)) {x6_ui_draw_loading(&s, &games[menu.selected]);loading_shown = 1;}
+        if (render && surface_for_frame(&s)) {x6_ui_draw_loading(&s, &browser.entries[menu.selected]);loading_shown = 1;}
         return;
     }
-    uint32_t selected = menu.selected;
-    if (!menu_rom_path(&games[selected]) || start_game(selected)) {
+    if (launch_library == X6_LIBRARY_STOCK) {
+        int32_t result = host_services->version >= 4
+            ? host_services->request_stock_game(launch_game) : host_services->request_stock();
+        if (result == 0) mode = MODE_HANDOFF;
+        else {open_browser();x6_menu_notice(&menu, "Original game is unavailable");}
+        return;
+    }
+    if (!menu_rom_path(&games[launch_game]) || start_game(launch_game)) {
         error = 0; /* The menu stays usable; the notice explains the failure. */
-        open_menu(selected);
+        open_browser();
         x6_menu_notice(&menu, "That game could not be started");
         return;
     }
@@ -810,6 +865,7 @@ static int32_t frame_call(void *context)
     case MODE_GAME: frame_game(render);break;
     case MODE_PAUSE: frame_pause(render);break;
     case MODE_SETTINGS: frame_settings(render);break;
+    case MODE_HANDOFF: break; /* Host owns the queued request after this call. */
     default: return -1;
     }
     return error ? -1 : 0;

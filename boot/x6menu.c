@@ -1,10 +1,14 @@
-/* H5: standalone host for the arcade module.
- * Loads f:\x6\arcade.mod, opens the X6-ARCADE menu, runs frames, shows the
- * module's 320x240 ARGB buffer on a double-buffered display layer, plays its
- * 22050 Hz stereo audio through b:\AUDIO\PLAY, feeds LKeyBoardDev keys as
- * the module's button mask. Hold Menu (0x1c3) ~1 s to quit back to boot.esh. */
+/* Standalone MAME host with an opt-in, original-FBA compatibility trial.
+ * All fixed-address emulator switching takes place outside module callbacks. */
 #include "svc.h"
 #include "x6_ui.h"
+#include "x6_host_services.h"
+#include "session.h"
+#include "x6_timing.h"
+#include "x6_directory.h"
+#include "x6_stock_catalog.h"
+#include "x6_catalog.h"
+#include "x6_runtime.h"
 
 #define mod_install_(p, m)   SVC(0x2805, p, m, 0, 0)
 #define mod_open_(id, m)     SVC(0x2800, id, m, 0, 0)
@@ -22,20 +26,6 @@ struct layer_info { uint8_t mode, pipe, prio, alpha_en; uint16_t alpha_val; uint
 struct ev { uint32_t type, code; int32_t value; };
 struct pkg { uint32_t hdr[3]; uint32_t count; struct ev ev[64]; };
 
-struct host_cb { int32_t (*submit_audio)(const void *, uint32_t); uint32_t *(*get_output_buffer)(void); char resource_path[256]; };
-struct emu {
-    int32_t (*load)(const struct host_cb *, const char *);
-    int32_t (*unload)(void);
-    int32_t (*frame)(uint32_t);
-    int32_t (*u0c)(void);
-    int32_t (*set_buttons)(uint32_t, uint32_t);
-    int32_t (*u14)(void);
-    int32_t (*save_state)(const char *);
-    int32_t (*load_state)(const char *);
-    uint32_t *(*video_info)(uint32_t *, uint32_t *, uint32_t *);
-    int32_t (*progress)(void);
-};
-
 static volatile uint32_t mask, menu_down;
 static uint32_t gbuf, front;                 /* gbuf: module draws here; front: shown by the layer */
 static uint32_t afp, aplugged;                         /* b:\AUDIO\PLAY */
@@ -48,7 +38,22 @@ static volatile uint32_t last_input, wake_req;
 #define ticks_() SVC(0x241f, 0, 0, 0, 0)                  /* 10 ms system ticks (as the module's timer.S) */
 static volatile uint32_t acalls, awritten, alastw, alastq, lastkey, vol = 25;
 #define AFRAME 1468u                         /* (22050/60)*4 bytes, as the stock launcher */
-static struct host_cb cb;
+static struct x6_host_callbacks cb;
+static struct x6_session session;
+static uint32_t stock_active, stock_ready, stock_requested, stockbuf, blocked_buttons;
+static uint32_t restore_library;
+static struct x6_game original_games[X6_CATALOG_MAX];
+static uint32_t original_count, original_selected, legacy_selected;
+static uint32_t stock_w, stock_h, stock_pitch, stock_video_error;
+#define STOCK_PAGES ((X6_STOCK_MAX_SIDE * X6_STOCK_MAX_SIDE * 4u) / 1024u)
+#define STOCK_MODULE "f:\\x6\\stock\\fba.mod"
+
+void *x6_directory_open_raw(const char *path) {return (void *)SVC(0x260d, path, 0, 0, 0);}
+const uint8_t *x6_directory_read_raw(void *handle) {return (const uint8_t *)SVC(0x260f, handle, 0, 0, 0);}
+int32_t x6_directory_close_raw(void *handle) {return (int32_t)SVC(0x260e, handle, 0, 0, 0);}
+void *x6_fs_open(const char *path, const char *mode) {return (void *)fopen_(path, mode);}
+uint32_t x6_fs_read(void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2604, data, size, count, handle);}
+int32_t x6_fs_close(void *handle) {return (int32_t)fclose_(handle);}
 
 static void say(const char *k, uint32_t v) { uputs("[X6MENU] "); uputs(k); uputs("="); uhex(v); uputs("\r\n"); }
 
@@ -94,9 +99,10 @@ static int32_t audio_cb(const void *pcm, uint32_t bytes)
     acalls++;
     q = fioctrl_(afp, 43, 1, 0);                                    /* bytes queued in the driver */
     alastq = q;
-    /* No sleep here: the module paces itself (x6_pacer); the stock launcher's sleep would add a
-       second wait. Data stays staged while the driver holds >= 5 frames. */
+    /* MAME paces itself. Original FBA relies on the host's queue backpressure,
+       so retain the stock launcher's one-tick wait only for that engine. */
     if (q < 5 * AFRAME && acount) { alastw = fwrite_(astage, 1, acount, afp); awritten += acount; acount = 0; }
+    else if (stock_active && q >= 5 * AFRAME) sleep_(1);
     return (int32_t)bytes;
 }
 
@@ -185,16 +191,20 @@ static void copy_frame(uint32_t *d, const uint32_t *s, uint32_t words)
         "   bne 1b\n"
         : "+r"(d), "+r"(s), "+r"(words) : : "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "memory", "cc");
 }
-static uint32_t *getbuf_cb(void) { return (uint32_t *)gbuf; }   /* back buffer */
+static uint32_t *getbuf_cb(void)
+{
+    if (!stock_active) return (uint32_t *)gbuf;
+    stock_w = stock_h = stock_pitch = 0;
+    if (session.emu) session.emu->video_info(&stock_w, &stock_h, &stock_pitch);
+    if (!stockbuf || !x6_stock_geometry(stock_w, stock_h, stock_pitch)) {
+        stock_video_error = 1;return 0;
+    }
+    return (uint32_t *)stockbuf;
+}
 
 
 
 /* Services offered to our modified fba.mod through resource_path ("X6HOST1" + pointer). */
-struct x6_host_services {
-    uint32_t version;
-    void (*set_brightness)(uint32_t level);
-    void (*set_idle)(uint32_t blank_seconds, uint32_t off_seconds);
-};
 static void lcd_brightness(uint32_t level)
 {
     /* Stock LCD levels: 0 brightest .. 10 dimmest still visible (desktop.mod 0xe1f09e20 maps its
@@ -205,14 +215,107 @@ static void lcd_brightness(uint32_t level)
 }
 static void svc_set_brightness(uint32_t level) { brightness = level; if (!blanked) lcd_brightness(level); }
 static void svc_set_idle(uint32_t blank_s, uint32_t off_s) { blank_ticks = blank_s * 100u; off_ticks = off_s * 100u; last_input = ticks_(); }
-static const struct x6_host_services host_services = { 1, svc_set_brightness, svc_set_idle };
+static uint32_t svc_stock_available(void) { return stock_ready; }
+static int32_t svc_request_stock(void)
+{
+    if (!stock_ready || stock_active || stock_requested) return -1;
+    original_selected = legacy_selected;stock_requested = 1;return 0;
+}
+static uint32_t svc_restore_library(void) { return restore_library; }
+static uint32_t svc_stock_count(void) {return original_count;}
+static int32_t svc_stock_metadata(uint32_t index, struct x6_game *out)
+{
+    if (!out || index >= original_count) return -1;
+    *out = original_games[index];return 0;
+}
+static int32_t svc_request_stock_game(uint32_t index)
+{
+    if (index >= original_count || original_games[index].available != X6_GAME_READY
+        || stock_active || stock_requested) return -1;
+    original_selected = index;stock_requested = 1;return 0;
+}
+static uint32_t svc_restore_stock_game(void) {return original_selected;}
+static const struct x6_host_services host_services = {
+    5, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
+    svc_stock_count, svc_stock_metadata, svc_request_stock_game, svc_restore_stock_game, x6_directory_walk
+};
+
+static int32_t install_module(const char *path) { return (int32_t)mod_install_(path, 0); }
+static uintptr_t open_module(uint32_t id) { return mod_open_(id, 0); }
+static const struct x6_emu_interface *module_interface(uintptr_t handle)
+{
+    return *(const struct x6_emu_interface **)(handle + 4);
+}
+static int32_t close_module(uintptr_t handle) { return (int32_t)mod_close_(handle); }
+static int32_t uninstall_module(uint32_t id) { return (int32_t)mod_uninstall_(id); }
+static const struct x6_module_ops module_ops = {
+    install_module, open_module, module_interface, close_module, uninstall_module
+};
+
+static uint32_t file_present(const char *path)
+{
+    uint32_t f = fopen_(path, "rb");
+    if (!f) return 0;
+    fclose_(f);return 1;
+}
+
+/* Return -2 if module-manager ownership could not be released. In that case
+ * no replacement may be installed at the shared 0xe9100000 address. */
+static int32_t start_emulator(uint32_t stock)
+{
+    if (x6_session_stop(&session) != 0) return -2;
+    if (stockbuf) {pfree_(stockbuf, STOCK_PAGES);stockbuf = 0;}
+    stock_active = stock;stock_requested = 0;stock_video_error = 0;
+    if (stock) restore_library = 2; /* Reopen Original Arcade when MAME returns. */
+    blocked_buttons = mask; /* Ignore every currently held button until release. */
+    acount = 0;acalls = 0;
+    if (afp) fioctrl_(afp, 42, 0, 0); /* Discard the previous engine's queued music. */
+    memset((void *)gbuf, 0, GW * GH * 4);
+    memset(&cb, 0, sizeof cb);
+    cb.submit_audio = audio_cb;cb.get_output_buffer = getbuf_cb;
+    if (stock) {
+        if (original_selected >= original_count) return -1;
+        stockbuf = palloc_(STOCK_PAGES);
+        if (!stockbuf) return -1;
+        memset((void *)stockbuf, 0, STOCK_PAGES * 1024u);
+        const char *path = original_games[original_selected].path;
+        uint32_t parent = 0;
+        for (uint32_t i = 0; path[i] && i + 1 < sizeof cb.resource_path; ++i) {
+            cb.resource_path[i] = path[i];
+            if (path[i] == '\\' || path[i] == '/') parent = i;
+        }
+        cb.resource_path[parent] = 0;
+    } else {
+        const struct x6_host_services *hp = &host_services;
+        static const char magic[8] = {'X','6','H','O','S','T','1',0};
+        memcpy(cb.resource_path, magic, 8);
+        memcpy(cb.resource_path + 8, &hp, sizeof hp);
+    }
+    int32_t result = x6_session_start(&session, &module_ops,
+        stock ? STOCK_MODULE : "f:\\x6\\arcade.mod", &cb,
+        stock ? original_games[original_selected].path : "f:\\game\\cps\\X6-ARCADE.zip");
+    say(stock ? "stock_load" : "mame_load", (uint32_t)result);
+    if (result != 0) return session.id ? -2 : -1;
+    if (stock && !getbuf_cb()) return -1;
+    if (stock && afp) {
+        static const int16_t silence[2205 * 2] = {0};
+        audio_cb(silence, sizeof silence); /* Start with a bounded 100 ms reserve. */
+    }
+    last_input = ticks_();
+    return 0;
+}
+
+static void present(void)
+{
+    copy_frame((uint32_t *)front, (const uint32_t *)gbuf, GW * GH);
+    SVC(0x2515, front, GW * GH * 4, 0, 0);
+}
 
 int main(void *arg)
 {
-    uint32_t disp, h, kh, a[3], mid, mh, r;
+    uint32_t disp, h, kh, a[3], r;
     uint32_t np = 1 + ((GW * GH * 4) >> 10);
     struct layer_info li;
-    const struct emu *e;
     (void)arg;
     uputs("\r\n[X6MENU] start\r\n");
 
@@ -263,69 +366,107 @@ int main(void *arg)
     kh = kgrab_("LKeyBoardDev", key_cb);
     say("keys", kh);
 
-    mid = mod_install_("f:\\x6\\arcade.mod", 0);
-    say("mod_id", mid);
-    mh = mid ? mod_open_(mid & 0xff, 0) : 0;
-    say("mod_handle", mh);
-    if (!mh) goto teardown;
-    e = *(const struct emu **)(mh + 4);
-    say("emu", (uint32_t)e);
-    memset(&cb, 0, sizeof cb);
-    cb.submit_audio = audio_cb; cb.get_output_buffer = getbuf_cb;
-    {
-        const struct x6_host_services *hp = &host_services;
-        static const char magic[8] = { 'X', '6', 'H', 'O', 'S', 'T', '1', 0 };
-        memcpy(cb.resource_path, magic, 8);
-        memcpy(cb.resource_path + 8, &hp, sizeof hp);
-    }
-    r = e->load(&cb, "f:\\game\\cps\\X6-ARCADE.zip");
-    say("load", r);
-    if (r == 0) {
-        uint32_t held = 0, frames = 0, skipleft = 0, lastcalls = 0;
-        for (;;) {
-            e->set_buttons(0, mask);
-            if (volreq && afp) { volreq = 0; fioctrl_(afp, 25, vol, 0); }
-            {
-                uint32_t now = ticks_(), idle = now - last_input, b3[3] = { 0, 0, 0 };
-                if (wake_req) {
-                    wake_req = 0;
-                    if (blanked) { fioctrl_(disp, 0x140, 0, b3); blanked = 0; lcd_brightness(brightness); say("wake", idle); }
-                }
-                if (!blanked && blank_ticks && idle > blank_ticks) { fioctrl_(disp, 0x141, 0, b3); blanked = 1; say("blank", idle); }
-                if (off_ticks && idle > off_ticks) { say("idle_poweroff", idle); quitreq = 2; break; }
-                {   /* status every ~30 s: idle ticks, blank limit, power-off limit */
-                    static uint32_t next_status;
-                    if ((int32_t)(now - next_status) >= 0) {
-                        next_status = now + 3000u;
-                        uputs("[X6MENU] idle="); uhex(idle); uputs(" blank="); uhex(blank_ticks);
-                        uputs(" off="); uhex(off_ticks); uputs(" now="); uhex(now); uputs("\r\n");
-                    }
-                }
+    if (file_present(STOCK_MODULE)) original_count = x6_stock_catalog_build(original_games, X6_CATALOG_MAX);
+    legacy_selected = x6_stock_catalog_legacy(original_games, original_count);
+    stock_ready = legacy_selected < original_count;
+    say("original_games", original_count);
+    int32_t result = start_emulator(0);
+    uint32_t paused = result != 0, failed = paused, fatal = paused;
+    uint32_t frames = 0, skipleft = 0, lastcalls = 0, previous = 0;
+    uint32_t pause_selected = 0, pause_dim = 1;
+    struct x6_pacer stock_pacer;
+    x6_pacer_reset(&stock_pacer);
+    for (;;) {
+        blocked_buttons &= mask;
+        uint32_t buttons = mask & ~blocked_buttons;
+        uint32_t pressed = buttons & ~previous;
+        previous = buttons;
+        if (volreq && afp) {volreq = 0;fioctrl_(afp, 25, vol, 0);}
+        {
+            uint32_t now = ticks_(), idle = now - last_input, b3[3] = {0, 0, 0};
+            if (wake_req) {
+                wake_req = 0;
+                if (blanked) {fioctrl_(disp, 0x140, 0, b3);blanked = 0;lcd_brightness(brightness);}
             }
-            uint32_t render = 1;
-            if (afp && acalls != lastcalls) {           /* game audio flowing (menu makes none): stock frame skip, 4 at <1 frame queued .. 0 at >=4 */
-                uint32_t buffered = fioctrl_(afp, 43, 1, 0) / AFRAME;
-                uint32_t skip = buffered >= 4 ? 0 : 4 - buffered;
-                if (skipleft) { skipleft--; render = 0; } else skipleft = skip;
-            }
-            lastcalls = acalls;
-            r = e->frame(render);
-            if ((int32_t)r < 0) { say("frame_err", r); break; }
-            if (render) copy_frame((uint32_t *)front, (const uint32_t *)gbuf, GW * GH);   /* finished frame -> shown buffer */
-#ifdef X6_DEBUG_OVERLAY
-            draw_debug((uint32_t *)front);
-#endif
-            if (render) SVC(0x2515, front, GW * GH * 4, 0, 0);   /* clean D-cache over it (as display.drv does) */
-            if (++frames == 60) { say("frames", frames); say("audio_queued", afp ? fioctrl_(afp, 43, 1, 0) : 0); say("audio_drops", adrop); }
-            held = menu_down ? held + 1 : 0;
-            (void)held;                                 /* Menu opens the module's pause menu; power key powers off */
+            if (!blanked && blank_ticks && idle > blank_ticks) {fioctrl_(disp, 0x141, 0, b3);blanked = 1;}
+            if (off_ticks && idle > off_ticks) {quitreq = 2;break;}
         }
-        e->unload();
-        say("audio_drops", adrop);
+        if (stock_active && !paused && (pressed & X6_BTN_MENU)) {
+            paused = 1;pause_selected = 0;pause_dim = 1;
+            acount = 0;
+            if (afp) fioctrl_(afp, 42, 0, 0);
+            pressed &= ~X6_BTN_MENU; /* Opening Menu must not immediately resume. */
+        }
+        if (paused) {
+            const char *items[2] = {"Resume", "Back to Reloaded"};
+            const char *note = "Menu or B resumes";
+            uint32_t count = 2;
+            if (failed) {
+                items[0] = fatal ? "Restart required" : "Back to Reloaded";
+                count = 1;
+                note = fatal ? "Power off and restart the X6" : "Original game could not be started";
+            }
+            if (pressed & (X6_BTN_UP | X6_BTN_DOWN)) pause_selected = (pause_selected + 1) % count;
+            uint32_t resume = !failed && (pressed & (X6_BTN_B | X6_BTN_MENU));
+            uint32_t back = !fatal && (pressed & X6_BTN_A) && (failed || pause_selected == 1);
+            if (!failed && (pressed & X6_BTN_A) && pause_selected == 0) resume = 1;
+            if (back) {
+                result = start_emulator(0);
+                failed = paused = result != 0;fatal = failed;
+                pause_selected = 0;pause_dim = 1;previous = 0;
+                skipleft = 0;lastcalls = 0;x6_pacer_reset(&stock_pacer);
+                continue;
+            }
+            if (resume) {
+                paused = 0;blocked_buttons = mask;previous = 0;
+                x6_pacer_reset(&stock_pacer);
+                continue;
+            }
+            struct x6_surface surface = {(uint32_t *)gbuf, GW, GH, GW};
+            x6_ui_draw_pause(&surface, failed ? "Original Arcade" : original_games[original_selected].title,
+                             items, count, pause_selected, note, pause_dim);
+            pause_dim = 0;present();sleep_(2);
+            continue;
+        }
+        const struct x6_emu_interface *e = session.emu;
+        e->set_buttons(0, stock_active ? buttons & 0xfffu : buttons);
+        if (stock_active && (!afp || acalls == lastcalls)) {
+            uint32_t now = ticks_(), wait = x6_pacer_wait(&stock_pacer, now);
+            if (wait) sleep_(wait);
+            x6_pacer_observe(&stock_pacer, ticks_());
+        }
+        uint32_t render = 1;
+        if (afp && acalls != lastcalls) {
+            uint32_t buffered = fioctrl_(afp, 43, 1, 0) / AFRAME;
+            uint32_t skip = buffered >= 4 ? 0 : 4 - buffered;
+            if (skipleft) {skipleft--;render = 0;} else skipleft = skip;
+        }
+        lastcalls = acalls;
+        int32_t frame_result = e->frame(render);
+        if (stock_requested) {
+            /* We are back in host code. No module callback is on the stack. */
+            result = start_emulator(1);
+            paused = failed = result != 0;fatal = result == -2;
+            pause_selected = 0;pause_dim = 1;previous = 0;
+            skipleft = 0;lastcalls = 0;x6_pacer_reset(&stock_pacer);
+            continue;
+        }
+        if (frame_result < 0 || stock_video_error
+            || (stock_active && render && x6_stock_blit((uint32_t *)gbuf,
+                (const uint32_t *)stockbuf, stock_w, stock_h, stock_pitch) != 0)) {
+            paused = failed = 1;fatal = !stock_active;
+            pause_selected = 0;pause_dim = 1;blocked_buttons = mask;previous = 0;
+            continue;
+        }
+        if (render) present();
+#ifdef X6_DEBUG_OVERLAY
+        draw_debug((uint32_t *)front);
+#endif
+        if (++frames == 60) {say("frames", frames);say("audio_queued", afp ? fioctrl_(afp, 43, 1, 0) : 0);}
     }
-    mod_close_(mh);
-    mod_uninstall_(mid);
-teardown:
+    int32_t stopped = x6_session_stop(&session);
+    say("module_stop", (uint32_t)stopped);
+    if (!stopped && stockbuf) {pfree_(stockbuf, STOCK_PAGES);stockbuf = 0;}
     if (kh) krelease_(kh);
     a[0] = h; a[1] = 0; fioctrl_(disp, 0x43, 0, a); fioctrl_(disp, 0x41, 0, a);
     audio_close();

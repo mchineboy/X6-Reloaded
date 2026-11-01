@@ -126,15 +126,23 @@ def build(root, firmware, toolchain):
              '-fno-builtin', '-nostdlib', '-fno-pic', '-ffunction-sections', '-fdata-sections',
              '-I' + str(root / 'include')]
     libgcc = subprocess.check_output([gcc, '-print-libgcc-file-name'], text=True).strip()
-    for name in ['sd.c', 'hook.c', 'stub-ramdisk.S', 'x6menu.c']:
+    for name in ['sd.c', 'hook.c', 'stub-ramdisk.S', 'x6menu.c', 'session.c']:
         subprocess.run([gcc, *flags, '-c', str(root / 'boot' / name), '-o', str(out / (name + '.o'))], check=True)
     ui = []
-    for name in ['gfx.c', 'font_data.c', 'splash.c']:
+    for name in ['gfx.c', 'font_data.c', 'splash.c', 'menu.c']:
         obj = out / (name + '.o')
         subprocess.run([gcc, *flags, '-c', str(root / 'src/ui' / name), '-o', str(obj)], check=True)
         ui.append(str(obj))
+    timing = out / 'timing.o'
+    subprocess.run([gcc, *flags, '-c', str(root / 'src/arcade/timing.c'), '-o', str(timing)], check=True)
+    discovery = []
+    for source in ['src/runtime/directory.c', 'src/arcade/stock_catalog.c']:
+        obj = out / (Path(source).stem + '.o')
+        subprocess.run([gcc, *flags, '-c', str(root / source), '-o', str(obj)], check=True)
+        discovery.append(str(obj))
     subprocess.run([ld, '--gc-sections', '-T', str(root / 'boot/exf.ld'),
-                    str(out / 'x6menu.c.o'), *ui, libgcc, '-o', str(out / 'x6menu.axf')], check=True)
+                    str(out / 'x6menu.c.o'), str(out / 'session.c.o'), str(timing),
+                    *ui, *discovery, libgcc, '-o', str(out / 'x6menu.axf')], check=True)
     subprocess.run([ld, '-T', str(root / 'boot/hook-sram.ld'), str(out / 'hook.c.o'),
                     str(out / 'sd.c.o'), libgcc, '-o', str(out / 'hook.elf')], check=True)
     subprocess.run([objcopy, '-O', 'binary', str(out / 'hook.elf'), str(out / 'hook.bin')], check=True)

@@ -16,6 +16,23 @@ card somewhere sensible. Under a coffee mug does not count as a backup strategy.
 X6 Reloaded is an independent, unofficial project. It is not affiliated with or
 endorsed by the handheld's manufacturer, Allwinner, or the MAME team.
 
+## Start here: set up your own card
+
+Follow [the start-to-finish setup guide](SETUP.md) for computer setup, original
+card and FEL backups, game selection, image creation, verified SD writing and
+your first game. Each stage has a checkpoint before you move on.
+
+### Back up your unit
+
+Follow [the step-by-step FEL and backup guide](BACKUP.md) before building your
+arcade card. It starts with preparing a dedicated FEL recovery SD, explains how
+to boot the X6 into FEL, and finishes with two verified internal-flash reads.
+
+`make fel-image` creates the recovery image without needing a firmware backup.
+Once the unit is in FEL, `make fel-check` checks its chip/flash identity and
+`make backup` takes and compares two 8 MiB reads. Card writing is a separate,
+explicitly confirmed step. These commands never program or erase internal flash.
+
 ## What you bring
 
 | Input | What it needs to be |
@@ -81,6 +98,11 @@ Linux/WSL builds and Windows card writes still need end-to-end validation.
    boot payload. Rebuilding starts with a fresh ROM staging folder, so deselected
    games do not come along for the ride.
 
+   The engine always includes the full supported 43-driver profile. Your
+   selection controls which ROMs are copied into the image, so adding another
+   supported game later does not require rebuilding the engine.
+   Configure with `GAMES=none` to build without ROMs and add them afterward.
+
    Runtime files live under `x6/`: `arcade.mod`, `x6menu.axf` and `boot.esh`.
    This keeps Reloaded separate from the stock `apps/mod/fba.mod` during
    file-based updates. The full-image writer below still erases its target card.
@@ -129,6 +151,7 @@ samples produce warnings; they can leave effects silent. Galaga's `bang.wav` and
 | Where | Control |
 | --- | --- |
 | Game list | D-pad to browse; A or Start to launch; Select for settings |
+| Library folders | A or Start opens; B goes back; Left/Right pages within a list |
 | In a game | Select inserts a coin; Start starts one player; D-pad moves; B/A/Y are the first three arcade actions |
 | Pause screen | Menu opens pause; B or Menu resumes; A selects; Left/Right changes difficulty or rapid fire where offered |
 | Settings | Up/Down selects; Left/Right changes; B or Select saves and returns |
@@ -139,6 +162,79 @@ Global settings live in `x6/settings.bin`; per-game difficulty and rapid fire
 live beside the ROMs as `.x6d` files. A fresh full SD image replaces those saved
 settings along with the rest of the card. Back them up before rebuilding a card
 you have already been using.
+
+The library opens with **MAME Arcade** and, when a stock backup is included,
+**Original Arcade** folders. A library with more than 40 games automatically
+gets alphabet folders: **0–9, A–F, G–L, M–R, S–Z**. Empty groups are hidden;
+punctuation and non-ASCII initial characters go under 0–9. Counts show how many
+games each folder contains. Returning from a game restores its folder and cursor;
+opening Settings also preserves your position. These are menu groups; no ROM
+files are moved.
+
+## Add games without rebuilding
+
+1. Copy your compatible ROM into the appropriate folder on the SD card:
+
+   | Library | Folder | Files |
+   | --- | --- | --- |
+   | MAME Arcade | `roms/mame/` | Supported game-name ZIPs matching MAME 2000 / 0.37b5 |
+   | Original Arcade | `roms/original/` | Compatible stock `.fba` packs or original-FBA game-name ZIPs |
+
+2. Put any required MAME sample ZIP beside those ROMs under `roms/mame/samples/`.
+3. Safely eject the card, insert it into the powered-off X6 and reboot.
+
+The menu discovers installed games at startup and builds the alphabet folders
+automatically. ROM bytes live on the card; they are not embedded in the binary.
+MAME checks filenames for its compiled supported-driver pool and hides missing
+ROMs. Extra ROM files remain visible in grey with an `UNSUPPORTED`, `INVALID` or
+`FORMAT` badge. Selecting one shows the reason; neither A nor START launches it.
+They participate in the same alphabet folders as playable entries. The scanner
+considers `.zip`, `.fba`, `.7z`, `.rar`, `.bin` and `.rom`; instructions, saves,
+hidden files, BIOS-only dependencies and subdirectories stay out of the game list.
+Arbitrary games outside the driver pool still need an emulator update; copying a
+ZIP cannot add an unimplemented hardware driver. `roms/mame/README.TXT` lists the
+supported short names. The startup check does not validate every ROM chip CRC;
+use `make scan ROMS=/path/to/roms` for the host-side audit.
+
+Existing cards continue working: MAME also checks `game/cps/`, and Original Arcade
+also enumerates packed games in `game/mame/` and the earlier `x6/stock/` trial folder.
+The new `roms/` locations take priority when a game exists in both. Empty files
+and invalid or unreadable original-arcade headers appear disabled. A recognizable
+stock header or ZIP signature alone cannot establish whether the original FBA
+engine supports that game: these entries remain eligible to try with a
+`ROM set unverified` note. The startup scanner does not perform a complete
+archive/ROM-set audit or promise that every selectable game will work.
+Original Arcade needs your original module at `x6/stock/fba.mod`; it cannot run
+stock games without that separate emulator. Original-FBA ZIPs are not assumed
+interchangeable with MAME 0.37b5 ZIPs.
+
+## Original Arcade support
+
+The initial stock-emulator trial used **2020 Super Baseball**. To include the
+verified original FBA module and initial 2020 game from your own stock-card backup:
+
+```sh
+make image STOCK_BACKUP="/path/to/your/stock-card-backup"
+```
+
+This is optional. The importer accepts only the exact inspected `apps/mod/fba.mod`
+and `game/mame/2020bb.fba` checksums. It copies them into `x6/stock/` in the private
+image; the backup and original saves stay untouched. It does not convert `.fba`
+files into MAME ZIPs. Passing `STOCK_BACKUP` to `make menuconfig` saves the option
+locally; use `STOCK_BACKUP=none` to disable it.
+
+In the stock game, **Menu** opens Resume / Back to Reloaded. The host unloads one
+emulator before loading the other because both use the same memory address.
+Reloaded's per-game difficulty and rapid-fire settings apply to MAME games only.
+
+That importer seeds the image with the known 2020 game; it does not limit runtime
+discovery to that game. Later `.fba`/ZIP additions use their discovered filenames.
+
+**Status, November 1, 2026:** the user reports that 2020 Super Baseball
+“works perfectly” on the preceding trial. Native tests find 56 valid packed games
+in the local stock backup. The new directory syscalls, additional games and
+automatic discovery still require handheld validation. Enumeration is not a
+claim that every listed game runs correctly or fits the board's performance.
 
 ## What is actually tested
 

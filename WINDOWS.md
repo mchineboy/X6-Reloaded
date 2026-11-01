@@ -1,5 +1,9 @@
 # Create an X6 Reloaded SD card on Windows
 
+For the complete path from an original unit to a playable card, start with
+[the setup guide](SETUP.md). Take your FEL backup on a Mac/Linux host first;
+this page covers the proposed WSL build and Windows image-writing stages.
+
 Use **balenaEtcher** or **Raspberry Pi Imager** to write your private
 `X6-Reloaded.img` to a spare SD card. Both have Windows versions and verify the
 write. No WSL, Make, Python or compiler is needed for the actual card write.

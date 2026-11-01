@@ -100,6 +100,33 @@ int main(int argc, char **argv)
     x6_menu_draw(&m, &surface);guard_check();save(out, "menu-missing-rom");
     settle(&m, 200);assert(m.notice_frames == 0);
 
+    /* Visible disabled ROMs stay grey even selected; neither launch key can
+       bypass the reason. The detail notice clears when moving to another row. */
+    struct x6_game disabled[4] = {
+        {.id = "unknown", .title = "Unknown Game", .available = X6_GAME_UNSUPPORTED,
+         .path = "F:/roms/mame/unknown.zip"},
+        {.id = "empty", .title = "Empty File", .available = X6_GAME_INVALID},
+        {.id = "compressed", .title = "Compressed Game", .available = X6_GAME_FORMAT},
+        {.id = "dkong", .title = "Donkey Kong", .available = X6_GAME_READY}
+    };
+    const char *reasons[] = {"No driver", "invalid ROM", "Unsupported file"};
+    struct x6_menu blocked;
+    x6_menu_init(&blocked, disabled, 4, 0);x6_menu_location(&blocked, "MAME Arcade", 1);
+    settle(&blocked, 1);
+    x6_menu_draw(&blocked, &surface);guard_check();save(out, "unsupported-roms");
+    /* The selected title really renders grey, rather than selected white. */
+    uint32_t grey = 0;
+    for (int y = 54; y < 69; ++y) for (int x = 22; x < 180; ++x)
+        grey += surface.pixels[y * X6_UI_WIDTH + x] == 0xffa0a0a0u;
+    assert(grey > 20);
+    for (uint32_t i = 0; i < 3; ++i) {
+        assert(tap(&blocked, X6_BTN_A) == X6_MENU_NONE);
+        assert(tap(&blocked, X6_BTN_START) == X6_MENU_NONE);
+        assert(blocked.notice_frames && strstr(blocked.notice, reasons[i]));
+        tap(&blocked, X6_BTN_DOWN);assert(!blocked.notice_frames);
+    }
+    assert(tap(&blocked, X6_BTN_A) == X6_MENU_LAUNCH);
+
     /* A and Start both launch an available game. */
     tap(&m, X6_BTN_DOWN);
     assert(x6_menu_update(&m, X6_BTN_A) == X6_MENU_LAUNCH && m.selected == 1);
@@ -108,6 +135,30 @@ int main(int argc, char **argv)
     x6_menu_update(&m, 0);
     /* Face buttons other than A do nothing. */
     assert(tap(&m, X6_BTN_B) == X6_MENU_NONE && tap(&m, X6_BTN_X) == X6_MENU_NONE && m.selected == 1);
+
+    struct x6_game folders[2] = {
+        {.title = "MAME Arcade", .maker = "43 games", .year = "43", .available = 1, .folder = 1},
+        {.title = "Original Arcade", .maker = "1 game", .year = "1", .available = 1, .folder = 1}
+    };
+    x6_menu_init(&m, folders, 2, 0);x6_menu_location(&m, "Library", 0);settle(&m, 1);
+    assert(tap(&m, X6_BTN_A) == X6_MENU_LAUNCH && tap(&m, X6_BTN_B) == X6_MENU_NONE);
+    x6_menu_draw(&m, &surface);guard_check();save(out, "library-folders");
+    struct x6_game groups[5] = {
+        {.title = "0-9", .maker = "2 games", .year = "2", .available = 1, .folder = 1},
+        {.title = "A-F", .maker = "15 games", .year = "15", .available = 1, .folder = 1},
+        {.title = "G-L", .maker = "8 games", .year = "8", .available = 1, .folder = 1},
+        {.title = "M-R", .maker = "11 games", .year = "11", .available = 1, .folder = 1},
+        {.title = "S-Z", .maker = "7 games", .year = "7", .available = 1, .folder = 1}
+    };
+    x6_menu_init(&m, groups, 5, 1);x6_menu_location(&m, "MAME Arcade", 1);settle(&m, 1);
+    assert(tap(&m, X6_BTN_B) == X6_MENU_BACK);
+    x6_menu_draw(&m, &surface);guard_check();save(out, "alphabet-folders");
+    x6_menu_init(&m, five, 3, 2);x6_menu_location(&m, "MAME Arcade / A-F", 1);settle(&m, 1);
+    x6_menu_draw(&m, &surface);guard_check();save(out, "folder-games");
+    /* A held Back press on entry must not leave the new folder. */
+    x6_menu_init(&m, 0, 0, 0);x6_menu_location(&m, "MAME Arcade", 1);
+    assert(x6_menu_update(&m, X6_BTN_B) == X6_MENU_NONE);
+    x6_menu_update(&m, 0);assert(tap(&m, X6_BTN_B) == X6_MENU_BACK);
 
     /* Long list: paging, scroll window and scroll bar. */
     struct x6_game many[14];

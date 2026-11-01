@@ -49,6 +49,13 @@ int32_t x6_text_width(const char *text, int32_t scale);
 int32_t x6_text_draw(struct x6_surface *s, int32_t x, int32_t y, const char *text,
                      int32_t scale, uint32_t color);
 
+/* Preserve the old 0/1 values and structure layout across host versions. READY
+ * means eligible to try, not that the ROM contents or gameplay were validated. */
+enum x6_game_availability {
+    X6_GAME_MISSING = 0, X6_GAME_READY = 1, X6_GAME_UNSUPPORTED,
+    X6_GAME_INVALID, X6_GAME_FORMAT
+};
+
 struct x6_game {
     char id[16];        /* MAME short name; the ROM is <id>.zip */
     char title[40];     /* description without the parenthesised variant */
@@ -56,11 +63,13 @@ struct x6_game {
     char maker[32];
     char year[8];
     uint8_t vertical;   /* swapped-axis (portrait) monitor */
-    uint8_t available;  /* ROM zip present beside the menu selector */
+    uint8_t available;  /* enum x6_game_availability; only READY may launch */
     uint8_t imperfect;  /* driver flags report imperfect/missing features */
+    uint8_t folder;     /* browser directory; never passed to an emulator */
+    char path[256];     /* discovered SD path; empty for synthetic folders */
 };
 
-enum x6_menu_action { X6_MENU_NONE, X6_MENU_LAUNCH };
+enum x6_menu_action { X6_MENU_NONE, X6_MENU_LAUNCH, X6_MENU_BACK };
 
 struct x6_menu {
     const struct x6_game *games;
@@ -69,6 +78,8 @@ struct x6_menu {
     int32_t scroll_q8, target_scroll, cursor_q8;
     uint32_t nudge_frames, notice_frames;
     char notice[48];
+    char location[48];
+    uint32_t can_back;
 };
 
 void x6_menu_init(struct x6_menu *menu, const struct x6_game *games, uint32_t count,
@@ -77,6 +88,7 @@ void x6_menu_init(struct x6_menu *menu, const struct x6_game *games, uint32_t co
  * and its ROM is present. */
 enum x6_menu_action x6_menu_update(struct x6_menu *menu, uint32_t mask);
 void x6_menu_notice(struct x6_menu *menu, const char *text);
+void x6_menu_location(struct x6_menu *menu, const char *location, uint32_t can_back);
 void x6_menu_draw(const struct x6_menu *menu, struct x6_surface *s);
 
 void x6_ui_draw_loading(struct x6_surface *s, const struct x6_game *game);
