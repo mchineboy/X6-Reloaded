@@ -1,0 +1,415 @@
+{
+  "commit": "181b42e5da0d2f0c7a2e59244f23633ed594de2e",
+  "files": [
+    {
+      "path": "src/drivers/galaga.c",
+      "sha256": "6de74c6925044671c2aeaaa8f36bf46d69f3cabbd5f3284436153c3f836d7af7",
+      "result_sha256": "e5974925ea83099265287c7db67774bd0ab24db0c91aefa3aca074e305b851d6",
+      "edits": [
+        {
+          "line": 385,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_GAME_SAMPLE_PATH\r\n\t\"init.wav\",\r\n#endif\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/inptport.c",
+      "sha256": "6ab80f38e1ee162aee007477b3f1356fe8a162e156d4892fc01f8b9f9e641866",
+      "result_sha256": "0bdd79263cd3a18e4cf003a91a5faab67a4d2cdc05dd8b97ffad93daa7863e81",
+      "edits": [
+        {
+          "line": 607,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\n#ifdef X6_RESET_COIN_STATE\n\t/* X6: one module session runs many games and has no config file, so the\n\t * reset below never happens; a coin lockout written by one game would lock\n\t * coins out of the next (pacman after the expanded set). Clear per load. */\n\t{\n\t\tint x6_i;\n\t\tfor (x6_i = 0; x6_i < COIN_COUNTERS; x6_i++)\n\t\t\tcoins[x6_i] = lastcoin[x6_i] = coinlockedout[x6_i] = 0;\n\t}\n#endif\n"
+        }
+      ]
+    },
+    {
+      "path": "src/libretro/fileio.c",
+      "sha256": "011433203cfb8cae96aa0463063bf61875bcb3ca86d8f03c0cf2a4b7d425e9bd",
+      "result_sha256": "aa7c882c00481d265d118c152e2d42cb44a6b2da82daca4615a5831d35e94b02",
+      "edits": [
+        {
+          "line": 198,
+          "remove": 4,
+          "before_sha256": "1cdfa84b3c8d3d7065b49de67a10646d080ecc98f5e5e81b911c5930c36213f5",
+          "insert": "\t\t/* X6: retain/reallocate the owned vector on its first entry too. */\n\t\tnew_pathv = (char**)realloc(rompathv, (rompathc + 1) * sizeof(char *));\n"
+        },
+        {
+          "line": 214,
+          "remove": 4,
+          "before_sha256": "fff33dd3e559fb495b48432048a4149286b0440f7610fa4a64ebbfd0a2b1261a",
+          "insert": "\t\t/* X6: retain/reallocate the owned vector on its first entry too. */\n\t\tnew_pathv = (char**)realloc(samplepathv, (samplepathc + 1) * sizeof(char *));\n"
+        }
+      ]
+    },
+    {
+      "path": "src/libretro/input.c",
+      "sha256": "bea35cc243f2656f0216cd8301c41dd3f3267aa7a5f0c7d2c02d0d762e937de9",
+      "result_sha256": "874689612cb6a6cc029e96bfc6788a980870409bfe1c669e68b2defe9c608e8f",
+      "edits": [
+        {
+          "line": 274,
+          "remove": 1,
+          "before_sha256": "cdb098b8b79cf7fa7d7f8f9822a358f806c651837a347b7909e229b050cb1f2a",
+          "insert": ""
+        },
+        {
+          "line": 280,
+          "remove": 2,
+          "before_sha256": "c038eadcb9431f8b35f090778a685d1cc6cbd19e68bcef8360087e33ba65f2fc",
+          "insert": "\t\t\t/* X6: reuse the existing name storage across game reloads. */\n\t\t\tsnprintf(joynames[tot], sizeof(joynames[tot]), \"JS %d\", i * 10 + j);\n\t\t\tjoylist[tot].name = joynames[tot];\n"
+        }
+      ]
+    },
+    {
+      "path": "src/libretro/libretro.c",
+      "sha256": "6031ac2dffac5429ca341728bb0acf67e8be19941c5c10a25376980e521c18ed",
+      "result_sha256": "47150fbb21310b31d4c9ea5a8ac973bffadc29f1c9c87fa2b0f7577618e1de6f",
+      "edits": [
+        {
+          "line": 45,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_GAME_SAMPLE_PATH\n#define SAMPLE_PATH_BUF_SIZE (2 * PATH_BUF_SIZE)\n#else\n#define SAMPLE_PATH_BUF_SIZE PATH_BUF_SIZE\n#endif\n"
+        },
+        {
+          "line": 72,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "/* Current frontend video request; separate from the core's skip history. */\nint mame2000_video_enabled                = 1;\n"
+        },
+        {
+          "line": 97,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "extern int samples_ready;\n"
+        },
+        {
+          "line": 400,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#if (HAS_QSOUND)\n"
+        },
+        {
+          "line": 414,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#endif\n"
+        },
+        {
+          "line": 689,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "   mame2000_video_enabled = 1;\n"
+        },
+        {
+          "line": 734,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\n   /* X6: these per-load path buffers are owned here. Clear them so a\n    * subsequent game load does not lose the old allocation. */\n   free(nvdir);         nvdir = NULL;\n   free(hidir);         hidir = NULL;\n   free(cfgdir);        cfgdir = NULL;\n   free(screenshotdir); screenshotdir = NULL;\n   free(memcarddir);    memcarddir = NULL;\n   free(stadir);        stadir = NULL;\n   free(artworkdir);    artworkdir = NULL;\n   free(cheatdir);      cheatdir = NULL;\n"
+        },
+        {
+          "line": 791,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "   int av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;\n   if (!environ_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &av_enable))\n      av_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;\n   mame2000_video_enabled = (av_enable & RETRO_AV_ENABLE_VIDEO) != 0;\n"
+        },
+        {
+          "line": 809,
+          "remove": 1,
+          "before_sha256": "a731db3e0ecbdc72a60d31d11955f3346c6d61f931d583b8286b0a7028e6f6fc",
+          "insert": "   if (mame2000_video_enabled && gfx_width > 0 && gfx_height > 0 && gp2x_screen15_owned != NULL)\n"
+        },
+        {
+          "line": 852,
+          "remove": 1,
+          "before_sha256": "48c17989d8f8b334b0aa5326ea02a4a30e4d14ae5082aac3a8106987b511209e",
+          "insert": "   if (should_skip_frame || !mame2000_video_enabled)\n"
+        },
+        {
+          "line": 890,
+          "remove": 2,
+          "before_sha256": "28af13ff0e4308e6e7611fa6d73a7a124b4fa860df30e74ef9f02e39158311b4",
+          "insert": "   if (samples_ready && !pause_action)\n      audio_batch_cb(samples_buffer, samples_ready);\n"
+        },
+        {
+          "line": 909,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "   /* X6: a new ZIP must not reuse the previous driver index. */\n   game_index = -1;\n"
+        },
+        {
+          "line": 1028,
+          "remove": 1,
+          "before_sha256": "7f64836b74bf2cfdef6264170d6ecb6d8d02a208430d9369ca942697ee71efc1",
+          "insert": "   IMAMESAMPLEPATH = (char *) malloc(SAMPLE_PATH_BUF_SIZE);\n"
+        },
+        {
+          "line": 1064,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_GAME_SAMPLE_PATH\n      /* Preserve the normal system path; also support samples beside the ROMs.\n       * ZIP sample sets avoid requiring a new Melis directory-stat endpoint. */\n      snprintf(IMAMESAMPLEPATH, SAMPLE_PATH_BUF_SIZE, \"%s/samples;%s/samples\",\n               core_sys_directory, IMAMEBASEPATH);\n#else\n"
+        },
+        {
+          "line": 1065,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#endif\n"
+        },
+        {
+          "line": 1171,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_GALAGA_C_Z80\n   /* Device compatibility trial: all three Galaga CPUs use the C reference. */\n   if (!strcmp(drivers[game_index]->name, \"galaga\"))\n      use_drz80 = use_drz80_snd = 0;\n#endif\n\n#ifdef X6_ALTBEAST_DRZ80_SOUND\n   /* Experimental sound-only substitution; leave other games' selections intact. */\n   if (!strcmp(drivers[game_index]->name, \"altbeast\"))\n      use_drz80_snd = 1;\n#endif\n\n#ifdef X6_EXPANDED_C_Z80\n   /* X6: the substitutions below rewrite the shared MachineDriver in place, and\n    * clones/siblings share one (pacman and mspacman). Within one module session\n    * the menu loads several games, so restore the reference CPU types first and\n    * make the selection independent of launch order. */\n   {\n      int x6_c;\n      for (x6_c = 0; x6_c < MAX_CPU; x6_c++)\n      {\n         int *x6_type = (int*)&(drivers[game_index]->drv->cpu[x6_c].cpu_type);\n#if (HAS_DRZ80)\n         if (((*x6_type)&0xff) == CPU_DRZ80) *x6_type = ((*x6_type)&(~0xff))|CPU_Z80;\n#endif\n#if (HAS_CYCLONE)\n         if (((*x6_type)&0xff) == CPU_CYCLONE) *x6_type = ((*x6_type)&(~0xff))|CPU_M68000;\n#endif\n      }\n   }\n   /* X6 expanded set: C Z80 where DrZ80 failed under ARM926 QEMU.\n    * System 16 sound Z80: unload fault (altbeast, Codex; wb3, Claude).\n    * pacman: silent audio on DrZ80 while native C runs produce sound. */\n   {\n      extern void sys16_vh_screenrefresh(struct osd_bitmap *bitmap,int full_refresh);\n      if (drivers[game_index]->drv->vh_update == sys16_vh_screenrefresh\n          || !strcmp(drivers[game_index]->name, \"pacman\"))\n         use_drz80 = use_drz80_snd = 0;\n   }\n#endif\n\n"
+        },
+        {
+          "line": 1264,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "      bool qsound_active = false;\n#if (HAS_QSOUND)\n"
+        },
+        {
+          "line": 1265,
+          "remove": 2,
+          "before_sha256": "58f3870d701f6bcb167c8642ac84eefa01d4520e1135579e2d6f7c891b7a7ef4",
+          "insert": ""
+        },
+        {
+          "line": 1275,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#endif\n"
+        }
+      ]
+    },
+    {
+      "path": "src/libretro/sound.c",
+      "sha256": "478fca574bb5c11add4bad5269f85a8cbcb297b31e1341f3729db74d42a24abd",
+      "result_sha256": "39219500f2cca55648e57906236abb45fe0a89332c29ec218d70044a73d0313b",
+      "edits": [
+        {
+          "line": 5,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "/* Number actually mixed, separate from the next mixer's requested length. */\nint samples_ready = 0;\nstatic unsigned audio_fraction;\nstatic int next_sample_count(void)\n{\n#ifdef X6_CALL_RATE_AUDIO\n    /* X6: the frontend calls the core at 60 Hz, or at the rounded refresh for\n     * boards below 59 Hz. Produce exactly sample_rate per second of calls so\n     * the launcher's audio reserve does not drain (55/57/60.606 Hz boards). */\n    {\n        double fps = Machine->drv->frames_per_second;\n        unsigned call_hz = fps < 59.0 ? (unsigned)(fps + 0.5) : 60u;\n        audio_fraction += Machine->sample_rate;\n        int count = audio_fraction / call_hz;audio_fraction %= call_hz;\n        return count;\n    }\n#endif\n    if (Machine->drv->frames_per_second == 60.0) {\n        audio_fraction += Machine->sample_rate;\n        int count = audio_fraction / 60;audio_fraction %= 60;\n        return count;\n    }\n    return Machine->sample_rate / Machine->drv->frames_per_second;\n}\n"
+        },
+        {
+          "line": 15,
+          "remove": 1,
+          "before_sha256": "6a96ecb6f3b4d8ebbe1dff58855c1cf3b67080a1735abbb19f37b09d96d5a151",
+          "insert": "\taudio_fraction = 0;samples_ready = 0;\n\tsamples_per_frame = next_sample_count();\n"
+        },
+        {
+          "line": 27,
+          "remove": 1,
+          "before_sha256": "45b0c97755b7260a4f3f7be8d9b4a4a232b5f40ae186ffb68c53afcc914e5a0e",
+          "insert": "\tsamples_buffer = (short *) calloc((samples_per_frame + 1) * 2, sizeof(short));\n"
+        },
+        {
+          "line": 34,
+          "remove": 1,
+          "before_sha256": "96529bbf2a507ec7c8162b2fe218c4e884b080897c4225060a69cde4a3d65385",
+          "insert": "\t/* X6: release the stereo buffer before the next game allocates it. */\n\tfree(samples_buffer);\n\tsamples_buffer = NULL;\n\tsamples_per_frame = 0;samples_ready = 0;audio_fraction = 0;\n"
+        },
+        {
+          "line": 47,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\tsamples_ready = samples_per_frame;\n"
+        },
+        {
+          "line": 48,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\tsamples_per_frame = next_sample_count();\n"
+        }
+      ]
+    },
+    {
+      "path": "src/libretro/video.c",
+      "sha256": "e8c6e201e55b1888ef288f8e20749cbb3f33e575e00dc2c09c19794fde11edd4",
+      "result_sha256": "c26a5769184acc7c5adf7c1b181310f80c32cdd24205035caf492b3a205a8b4f",
+      "edits": [
+        {
+          "line": 20,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "extern int mame2000_video_enabled;\n"
+        },
+        {
+          "line": 488,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_FIVE_GAMES\n\t/* X6: reselect geometry and dirty mode for each newly loaded driver. */\n\tgfx_width = gfx_height = 0;\n\tuse_dirty = -1;\n\tmame2000_direct_frame_data = 0;\n\tmame2000_direct_frame_pitch = 0;\n#endif\n"
+        },
+        {
+          "line": 813,
+          "remove": 1,
+          "before_sha256": "b4f5aa9e907d37520d2223b7a7b47eb8cf62e0a570e176adf6c9f34722d94a14",
+          "insert": "   return should_skip_frame || !mame2000_video_enabled;\n"
+        },
+        {
+          "line": 942,
+          "remove": 1,
+          "before_sha256": "4246a0e3e3c90d6846e62bd07676ed480138aafe1db7349db4c39dbae36e6386",
+          "insert": "\t\tif (should_skip_frame || !mame2000_video_enabled)\n"
+        },
+        {
+          "line": 986,
+          "remove": 1,
+          "before_sha256": "741df3895d20284678d0ffdb85faae340fe836f1670c0adf7aa156aa0b38a741",
+          "insert": "\t\t/* Keep the last presented dirty history until another picture is copied. */\n\t\tif (use_dirty && mame2000_video_enabled && !should_skip_frame)\n"
+        }
+      ]
+    },
+    {
+      "path": "src/machine/galaga.c",
+      "sha256": "33b9ef3fd5a75487ad7d256d0eaefbc2ebb23ef76b58cef7859aee86f142a2a3",
+      "result_sha256": "96cc231c0e7b7d794e89af73945d7399bfd8b9da0a1f48bf57d4fba4956c93c6",
+      "edits": [
+        {
+          "line": 127,
+          "remove": 3,
+          "before_sha256": "8762dff257b2fe904bbeb82fd9c27fcd8ccd8d2e71064e54d1dd19a9cfe5a261",
+          "insert": "#ifdef X6_GAME_SAMPLE_PATH\r\n\t\t\t/* Restore the init.wav sample fallback also used in MAME 0.78.\r\n\t\t\t * This remains sample-based, not full Namco 54xx emulation. */\r\n\t\t\telse { sample_start(0,1,0); }\r\n#endif\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/mame.c",
+      "sha256": "4e1930cea92c3d3a8a9653301e5cb1d88de160f6b471c6843612c39fa28fe1de",
+      "result_sha256": "506406c52bfd98f0b14279a44c6e1a3def490303e8153eaf672e2df80b3c21af",
+      "edits": [
+        {
+          "line": 132,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#if (HAS_CUSTOM)\r\n"
+        },
+        {
+          "line": 133,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#endif\r\n"
+        },
+        {
+          "line": 211,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_ALTBEAST_TARGET_RATE\r\n\t\t/* The X6 host consumes 22050 Hz. Avoid high-rate FM synthesis that\r\n\t\t * the frontend would immediately downsample; keep chip clocks intact. */\r\n\t\tif (!strcmp(Machine->gamedrv->name,\"altbeast\")) fixed_rate = 0;\r\n#endif\r\n#ifdef X6_YM2151_TARGET_RATE\r\n\t\t/* Same treatment for the expanded set's other YM2151 boards. */\r\n\t\t{\r\n\t\t\tstatic const char *const x6_ym2151_games[] =\r\n\t\t\t\t{\"goldnaxe\",\"wb3\",\"shinobi\",\"rastan\",\"contra\",\"jackal\",\"ddragon\",0};\r\n\t\t\tint x6_i;\r\n\t\t\tfor (x6_i = 0; x6_ym2151_games[x6_i]; x6_i++)\r\n\t\t\t\tif (!strcmp(Machine->gamedrv->name,x6_ym2151_games[x6_i])) fixed_rate = 0;\r\n\t\t}\r\n#endif\r\n"
+        },
+        {
+          "line": 693,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_FIVE_GAMES\r\n\t/* System 16 has refresh/freeze state in its video callback. Advance that\r\n\t * prefix on omitted frames; its raster/tilemap work returns early. */\r\n\telse {\r\n\t\textern int mame2000_video_enabled;\r\n\t\textern void sys16_vh_screenrefresh(struct osd_bitmap *,int);\r\n\t\tif (!mame2000_video_enabled && Machine->drv->vh_update==sys16_vh_screenrefresh)\r\n\t\t\tsys16_vh_screenrefresh(Machine->scrbitmap,bitmap_dirty);\r\n\t}\r\n#endif\r\n\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/sound/fm.c",
+      "sha256": "a223b98659b50375642f6bf9be6d321f03158812741f43ecf84a8a9acc8c6678",
+      "result_sha256": "ac7200d6a2afc0a0cdf66d494697282740210f1d5125a91ca35e7374d9cd5ac5",
+      "edits": [
+        {
+          "line": 3574,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_NATIVE_PROFILE\r\n\textern uint64_t x6_native_profile_now(void);\r\n\textern void x6_native_profile_opm(uint64_t,unsigned);\r\n\tuint64_t x6_profile_started=x6_native_profile_now();\r\n\tunsigned x6_profile_samples=(unsigned)length;\r\n#endif\r\n\r\n"
+        },
+        {
+          "line": 3651,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_NATIVE_PROFILE\r\n\tx6_native_profile_opm(x6_profile_started,x6_profile_samples);\r\n#endif\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/sound/samples.c",
+      "sha256": "fb1cda1d74d1ecd19372a71bbc74564e069f589d374ffd08396c0c225bdf1e37",
+      "result_sha256": "fd25682b7808abbd07d63c11c595a0b82134dfaf024e5e82b891521924ef048a",
+      "edits": [
+        {
+          "line": 5,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_GAME_SAMPLE_PATH\r\n/* Read-only test observations, reset for each sample-device start. */\r\nunsigned x6_samples_loaded,x6_sample_starts[2];\r\n#endif\r\n"
+        },
+        {
+          "line": 25,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\r\n#ifdef X6_GAME_SAMPLE_PATH\r\n\tif (samplenum >= 0 && samplenum < 2) ++x6_sample_starts[samplenum];\r\n#endif\r\n"
+        },
+        {
+          "line": 106,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_GAME_SAMPLE_PATH\r\n\tx6_samples_loaded=x6_sample_starts[0]=x6_sample_starts[1]=0;\r\n\tif (Machine->samples) for (i=0;i<Machine->samples->total;++i)\r\n\t\tif (Machine->samples->sample[i]) ++x6_samples_loaded;\r\n#endif\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/vidhrdw/1943.c",
+      "sha256": "07cf2f520b54749542c50a9ef2edf5fc21b76d4a1e19caedf2c8184dc32b7352",
+      "result_sha256": "e8ded3f34e974ba909c879e57bf16b91fa0b581bd778a7bfab443b675c48cfe2",
+      "edits": [
+        {
+          "line": 141,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\tgeneric_vh_stop(); /* X6: pairs generic_vh_start(); upstream leaked its buffers */\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/vidhrdw/blktiger.c",
+      "sha256": "d3a07ee06199687c0ffcb0675341cc4e50b350492cbbba6060bc3717936f8ae4",
+      "result_sha256": "e2631205ebaffab49127f94a2a9cf4d620c7307a38f00f4a28aa2eed10410515",
+      "edits": [
+        {
+          "line": 103,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "\tbitmap_free(tmpbitmap3); /* X6: allocated in vh_start, never freed upstream */\r\n"
+        }
+      ]
+    },
+    {
+      "path": "src/vidhrdw/system16.c",
+      "sha256": "cdae344e2beda84c4142a2c1497b78b2b9bed1bb8ebcd987977bd021be1d2cf8",
+      "result_sha256": "d179e6891fdf34d57bacc5f307f22625c067497e2ff38837cd2f68f6f7988d7d",
+      "edits": [
+        {
+          "line": 1718,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_FIVE_GAMES\r\nextern int mame2000_video_enabled;\r\nint x6_sys16_frozen;\r\n#endif\r\n"
+        },
+        {
+          "line": 1719,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_FIVE_GAMES\r\n\tx6_sys16_frozen=0;\r\n#endif\r\n"
+        },
+        {
+          "line": 1732,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_FIVE_GAMES\r\n\t\t\tx6_sys16_frozen=1;\r\n#endif\r\n"
+        },
+        {
+          "line": 1901,
+          "remove": 0,
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "insert": "#ifdef X6_FIVE_GAMES\r\n\t\t/* Palette, tile and sprite state above still advances on hidden frames. */\r\n\t\tif (!mame2000_video_enabled) return;\r\n#endif\r\n"
+        }
+      ]
+    }
+  ]
+}
