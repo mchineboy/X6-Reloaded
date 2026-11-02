@@ -11,6 +11,7 @@
 #include "x6_runtime.h"
 #include "x6_library.h"
 #include "x6_titles.h"
+#include "x6_path.h"
 
 #define mod_install_(p, m)   SVC(0x2805, p, m, 0, 0)
 #define mod_open_(id, m)     SVC(0x2800, id, m, 0, 0)
@@ -53,7 +54,7 @@ static uint32_t stock_w, stock_h, stock_pitch, stock_video_error;
 void *x6_directory_open_raw(const char *path) {return (void *)SVC(0x260d, path, 0, 0, 0);}
 const uint8_t *x6_directory_read_raw(void *handle) {return (const uint8_t *)SVC(0x260f, handle, 0, 0, 0);}
 int32_t x6_directory_close_raw(void *handle) {return (int32_t)SVC(0x260e, handle, 0, 0, 0);}
-void *x6_fs_open(const char *path, const char *mode) {return (void *)fopen_(path, mode);}
+void *x6_fs_open_raw(const char *path, const char *mode) {return (void *)fopen_(path, mode);}
 uint32_t x6_fs_read(void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2604, data, size, count, handle);}
 uint32_t x6_fs_write(const void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2605, data, size, count, handle);}
 int32_t x6_fs_seek(void *handle, int32_t offset, int32_t origin) {return (int32_t)SVC(0x2606, handle, offset, origin, 0);}
@@ -244,12 +245,16 @@ static int32_t svc_request_stock_game(uint32_t index)
 static uint32_t svc_restore_stock_game(void) {return original_selected;}
 static uint32_t svc_library_status(void) {return library_status;}
 static const struct x6_host_services host_services = {
-    6, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
+    7, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
     svc_stock_count, svc_stock_metadata, svc_request_stock_game, svc_restore_stock_game, x6_directory_walk,
-    &x6_libraries_provider, svc_request_library_game, svc_library_status, x6_titles_apply
+    &x6_libraries_provider, svc_request_library_game, svc_library_status, x6_titles_apply, x6_libraries_scan_info
 };
 
-static int32_t install_module(const char *path) { return (int32_t)mod_install_(path, 0); }
+static int32_t install_module(const char *path)
+{
+    char normalized[256];
+    return x6_path_normalize(normalized, path) ? (int32_t)mod_install_(normalized, 0) : -1;
+}
 static uintptr_t open_module(uint32_t id) { return mod_open_(id, 0); }
 static const struct x6_emu_interface *module_interface(uintptr_t handle)
 {
@@ -313,17 +318,10 @@ static void present(void)
     SVC(0x2515, front, GW * GH * 4, 0, 0);
 }
 
-static void catalog_progress(uint32_t library, uint32_t count)
+static void catalog_progress(const struct x6_scan_info *scan)
 {
     struct x6_surface surface = {(uint32_t *)gbuf, GW, GH, GW};
-    x6_ui_draw_splash(&surface, 60);
-    x6_gfx_fill(&surface, 0, 192, GW, 48, 0xff05060du);
-    x6_text_draw(&surface, 16, 198, x6_library_name(library), 1, 0xffffffffu);
-    char line[32] = {0}, reverse[12];uint32_t n = 0, at = 0;
-    do {reverse[n++] = (char)('0' + count % 10);count /= 10;} while (count);
-    while (n) line[at++] = reverse[--n];
-    const char *suffix = " files found";while (*suffix && at + 1 < sizeof line) line[at++] = *suffix++;
-    x6_text_draw(&surface, 16, 214, line, 1, 0xffa0a0a0u);present();
+    x6_ui_draw_scan(&surface, scan);present();
 }
 
 int main(void *arg)
@@ -382,7 +380,7 @@ int main(void *arg)
     say("keys", kh);
 
     x6_libraries_progress(catalog_progress);
-    library_status = x6_libraries_build() != 0;
+    x6_libraries_build();library_status = x6_libraries_scan_info()->errors;
     uint32_t buckets[X6_LIBRARY_BUCKETS];
     original_count = x6_libraries_provider.stats(X6_LIBRARY_STOCK, buckets);
     legacy_selected = original_count;
@@ -394,6 +392,10 @@ int main(void *arg)
     }
     stock_ready = legacy_selected < original_count;
     say("original_games", original_count);
+    if (!library_status) {
+        struct x6_scan_info opening = *x6_libraries_scan_info();opening.phase = X6_SCAN_MENU;
+        catalog_progress(&opening);
+    }
     int32_t result = start_emulator(0);
     uint32_t paused = result != 0, failed = paused, fatal = paused;
     uint32_t frames = 0, skipleft = 0, lastcalls = 0, previous = 0;

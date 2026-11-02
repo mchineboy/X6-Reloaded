@@ -4,9 +4,11 @@
 
 /* Version-locked ARM wrappers inferred from V1.241017 SD fba.mod.
  * Open/read/close and bounded heap/seek calls passed on-device in tests 002/003.
- * x6_fs_write (fwrite, svc 0x2605) is used only for small per-game settings files
+ * x6_fs_write (fwrite, svc 0x2605) is used for settings and the disposable library cache
  * on F:. No format, raw-disk, or flash service is declared here. */
 void *x6_fs_open(const char *path, const char *mode);
+/* Platform boundary only; callers use x6_fs_open for canonical Melis paths. */
+void *x6_fs_open_raw(const char *path, const char *mode);
 uint32_t x6_fs_read(void *ptr, uint32_t size, uint32_t count, void *handle);
 uint32_t x6_fs_write(const void *ptr, uint32_t size, uint32_t count, void *handle);
 int32_t x6_fs_close(void *handle);

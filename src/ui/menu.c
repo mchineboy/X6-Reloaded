@@ -120,7 +120,7 @@ static const char *disabled_reason(uint8_t state)
     case X6_GAME_INVALID: return "Empty, unreadable or invalid ROM file";
     case X6_GAME_FORMAT: return "Unsupported file format or ROM name";
     case X6_GAME_ENGINE: return "Required emulator module is missing";
-    case X6_GAME_CATALOG: return "Library incomplete; check SD space/limits";
+    case X6_GAME_CATALOG: return "Library scan did not finish";
     default: return "ROM file is missing";
     }
 }
@@ -148,6 +148,11 @@ enum x6_menu_action x6_menu_update(struct x6_menu *m, uint32_t mask)
                 uint32_t used = append(text, 0, sizeof(text), "Missing ROM: ");
                 used = append(text, used, sizeof(text), game->id);
                 append(text, used, sizeof(text), ".zip");
+                x6_menu_notice(m, text);
+            } else if (game->available == X6_GAME_CATALOG && game->maker[0]) {
+                char text[48];uint32_t used = append(text, 0, sizeof text, game->maker);
+                if (game->variant[0]) {used = append(text, used, sizeof text, " (code ");
+                    used = append(text, used, sizeof text, game->variant);append(text, used, sizeof text, ")");}
                 x6_menu_notice(m, text);
             } else x6_menu_notice(m, disabled_reason(game->available));
             m->nudge_frames = NUDGE_FRAMES;
@@ -214,7 +219,7 @@ static void draw_row(struct x6_surface *list, const struct x6_game *game, int32_
             : game->available == X6_GAME_INVALID ? "INVALID"
             : game->available == X6_GAME_FORMAT ? "FORMAT"
             : game->available == X6_GAME_ENGINE ? "NO ENGINE"
-            : game->available == X6_GAME_CATALOG ? "INCOMPLETE" : "NO ROM";
+            : game->available == X6_GAME_CATALOG ? "SCAN ERROR" : "NO ROM";
         tag_w = x6_text_width(tag, 1) + 10;
         x6_gfx_round_rect(list, right - tag_w, y + 9, tag_w, 13, 4, 0x26808080u);
         x6_text_draw(list, right - tag_w + 5, y + 12, tag, 1, TEXT_DISABLED);
@@ -244,10 +249,12 @@ static void draw_details(struct x6_surface *s, const struct x6_menu *m)
     const struct x6_game *g = &m->games[m->selected];
     char line[64];
     if (g->available != X6_GAME_READY) {
-        fit_text(line, sizeof line, disabled_reason(g->available), 1, LIST_W);
+        fit_text(line, sizeof line, g->available == X6_GAME_CATALOG && g->maker[0]
+            ? g->maker : disabled_reason(g->available), 1, LIST_W);
         x6_text_draw(s, MARGIN, DETAIL_Y + 2, line, 1, TEXT_DIM);
         const char *name = g->path[0] ? g->path : g->id;
-        for (const char *p = name; *p; ++p) if (*p == '/' || *p == '\\') name = p + 1;
+        if (g->available != X6_GAME_CATALOG)
+            for (const char *p = name; *p; ++p) if (*p == '/' || *p == '\\') name = p + 1;
         fit_text(line, sizeof line, name, 1, LIST_W);
         x6_text_draw(s, MARGIN, DETAIL_Y + 18, line, 1, TEXT_DISABLED);
         return;

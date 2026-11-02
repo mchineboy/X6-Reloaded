@@ -129,14 +129,14 @@ def build(root, firmware, toolchain):
     for name in ['sd.c', 'hook.c', 'stub-ramdisk.S', 'x6menu.c', 'session.c']:
         subprocess.run([gcc, *flags, '-c', str(root / 'boot' / name), '-o', str(out / (name + '.o'))], check=True)
     ui = []
-    for name in ['gfx.c', 'font_data.c', 'splash.c', 'menu.c', 'library.c']:
+    for name in ['gfx.c', 'font_data.c', 'splash.c', 'menu.c', 'library.c', 'scan.c']:
         obj = out / (name + '.o')
         subprocess.run([gcc, *flags, '-c', str(root / 'src/ui' / name), '-o', str(obj)], check=True)
         ui.append(str(obj))
     timing = out / 'timing.o'
     subprocess.run([gcc, *flags, '-c', str(root / 'src/arcade/timing.c'), '-o', str(timing)], check=True)
     discovery = []
-    for source in ['src/runtime/directory.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c', 'src/arcade/libraries.c']:
+    for source in ['src/runtime/directory.c', 'src/runtime/path.c', 'src/runtime/open.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c', 'src/arcade/libraries.c']:
         obj = out / (Path(source).stem + '.o')
         subprocess.run([gcc, *flags, '-c', str(root / source), '-o', str(obj)], check=True)
         discovery.append(str(obj))

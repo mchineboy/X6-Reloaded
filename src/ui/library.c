@@ -15,3 +15,16 @@ uint32_t x6_library_bucket(const char *title)
     if (c >= 'S' && c <= 'Z') return 4;
     return 0;
 }
+const char *x6_scan_error_message(const struct x6_scan_info *p)
+{
+    uint32_t e = p ? p->errors : 0;
+    if (e & X6_SCAN_OPEN) return "Cannot open library cache";
+    if (e & X6_SCAN_WRITE) return "Cannot write library cache";
+    if (e & X6_SCAN_CLOSE_FILE) return "Cannot close library cache";
+    if (e & X6_SCAN_CLOSE_DIR) return "Cannot close game folder";
+    if (e & X6_SCAN_LIMIT) return "Game catalog limit reached";
+    if (e & X6_SCAN_DIRECTORY) return "Game folder scan failed";
+    if (e & X6_SCAN_PATH) return "ROM path is too long";
+    if (e & X6_SCAN_TITLE) return "Cannot read title index";
+    return "Library scan did not finish";
+}

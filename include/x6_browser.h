@@ -26,12 +26,14 @@ struct x6_browser {
     uint32_t game_selected[X6_LIBRARY_COUNT][X6_BROWSER_BUCKETS + 1];
     uint32_t page_selected[X6_LIBRARY_COUNT][X6_BROWSER_BUCKETS + 1];
     char location[48];
+    char error_reason[32], error_path[128], error_code[12];
 };
 void x6_browser_init(struct x6_browser *b, const struct x6_game *mame, uint32_t mame_count,
                        const struct x6_game *stock, uint32_t stock_count);
 void x6_browser_init_provider(struct x6_browser *b, const struct x6_game *mame,
                                uint32_t count, const struct x6_library_provider *provider);
 void x6_browser_incomplete(struct x6_browser *b);
+void x6_browser_error(struct x6_browser *b, const char *reason, const char *path, uint32_t code);
 enum x6_browser_action x6_browser_choose(struct x6_browser *b, uint32_t selected, uint32_t *game_index);
 uint32_t x6_browser_back(struct x6_browser *b, uint32_t selected);
 /* Reopen the actual game's folder after leaving an emulator or pause screen. */

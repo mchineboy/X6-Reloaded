@@ -51,7 +51,7 @@ def main():
     out = ROOT / 'build/stock-tests';out.mkdir(parents=True, exist_ok=True)
     binary = out / 'libraries-test'
     sources = ['src/arcade/libraries.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c',
-               'src/runtime/directory.c', 'src/ui/library.c', 'src/ui/browser.c',
+               'src/runtime/directory.c', 'src/runtime/path.c', 'src/runtime/open.c', 'src/ui/library.c', 'src/ui/browser.c',
                'tests/library_filesystem.c', 'tests/libraries_host.c']
     subprocess.run(['clang', '-std=c11', '-D_DEFAULT_SOURCE', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
                     '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-I'+str(ROOT/'include'),

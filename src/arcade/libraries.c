@@ -8,13 +8,15 @@
 #include "x6_runtime.h"
 #include "x6_rom_file.h"
 #define LIMIT 8192u
-#define CACHE "F:/x6/library.cache"
+#define CACHE "F:/x6/LIBRARY.IDX" /* 8.3 creation name for the stock filesystem. */
 struct slot {char title[40];uint32_t offset, library, checksum;};
 static struct slot slots[LIMIT];
 static struct x6_game stock_staging[X6_CATALOG_MAX];
 static uint32_t used, status, counts[X6_LIBRARY_COUNT], starts[X6_LIBRARY_COUNT];
-static void (*progress)(uint32_t, uint32_t);
-void x6_libraries_progress(void (*callback)(uint32_t, uint32_t)) {progress = callback;}
+static struct x6_scan_info scan_info;
+static void (*progress)(const struct x6_scan_info *);
+void x6_libraries_progress(void (*callback)(const struct x6_scan_info *)) {progress = callback;}
+const struct x6_scan_info *x6_libraries_scan_info(void) {return &scan_info;}
 static uint32_t checksum(const struct x6_game *g)
 {
     const uint8_t *p = (const uint8_t *)g;uint32_t h = 2166136261u;
@@ -28,18 +30,32 @@ static void copy(char *out, uint32_t cap, const char *in)
 {
     uint32_t i = 0;while (in[i] && i + 1 < cap) {out[i] = in[i];++i;}out[i] = 0;
 }
+static void publish(uint32_t phase, uint32_t library, const char *directory)
+{
+    scan_info.phase = phase;scan_info.library = library;
+    scan_info.indexed = used;scan_info.errors = status;
+    if (directory) copy(scan_info.directory, sizeof scan_info.directory, directory);
+    if (progress) progress(&scan_info);
+}
+static void failure(uint32_t flag, int32_t code, const char *path)
+{
+    status |= flag;
+    if (!scan_info.error_code || (flag & (X6_SCAN_OPEN | X6_SCAN_WRITE | X6_SCAN_CLOSE_FILE))) {
+        scan_info.error_code = code;copy(scan_info.error_path, sizeof scan_info.error_path, path);
+    }
+}
 static uint32_t present(const char *path)
 {
     void *f = x6_fs_open(path, "rb");if (!f) return 0;return x6_fs_close(f) == 0;
 }
 static int32_t append(void *file, uint32_t library, struct x6_game *g)
 {
-    if (used == LIMIT) {status |= 1;return -1;}
+    if (used == LIMIT) {failure(X6_SCAN_LIMIT, -5, g->path);return -1;}
     x6_titles_apply(g, library);
-    if (x6_fs_write(g, 1, sizeof *g, file) != sizeof *g) {status |= 2;return -1;}
+    if (x6_fs_write(g, 1, sizeof *g, file) != sizeof *g) {failure(X6_SCAN_WRITE, -2, CACHE);return -1;}
     struct slot *s = &slots[used];copy(s->title, sizeof s->title, g->title);
     s->offset = used * sizeof *g;s->library = library;s->checksum = checksum(g);++used;
-    if (progress && used % 64u == 0) progress(library, used);
+    if (used % 16u == 0) publish(X6_SCAN_SCANNING, scan_info.library, 0);
     return 0;
 }
 struct scan {void *file;uint32_t library, engine;const char *directory;};
@@ -57,6 +73,8 @@ static uint32_t extension(const char *name, uint32_t library)
 static int32_t found(const struct x6_directory_entry *e, void *context)
 {
     struct scan *s = context;uint32_t library = s->library, supported = extension(e->name, library), stem;
+    ++scan_info.checked;
+    if (scan_info.checked % 16u == 0) publish(X6_SCAN_SCANNING, s->library, s->directory);
     if (!supported) {
         uint32_t rom = x6_rom_type(e->name, &stem);
         for (uint32_t lib = X6_LIBRARY_NES; lib < X6_LIBRARY_COUNT; ++lib) {
@@ -65,7 +83,7 @@ static int32_t found(const struct x6_directory_entry *e, void *context)
         if (!rom) return 0;
     }
     struct x6_game g = {0};
-    if (!x6_directory_join(g.path, sizeof g.path, s->directory, e->name)) {status |= 4;return 0;}
+    if (!x6_directory_join(g.path, sizeof g.path, s->directory, e->name)) {failure(X6_SCAN_PATH, -2, s->directory);return 0;}
     copy(g.id, sizeof g.id, e->name);copy(g.maker, sizeof g.maker, x6_library_name(library));
     copy(g.variant, sizeof g.variant, "Playback unverified");x6_titles_filename(&g, e->name);
     g.available = !e->size_low && !e->size_high ? X6_GAME_INVALID
@@ -94,13 +112,21 @@ static void sift(uint32_t at, uint32_t end)
 }
 int32_t x6_libraries_build(void)
 {
-    used = 0;status = x6_titles_load() ? 8u : 0u;
+    used = status = 0;scan_info = (struct x6_scan_info){0};
     for (uint32_t i = 0; i < X6_LIBRARY_COUNT; ++i) counts[i] = starts[i] = 0;
-    void *file = x6_fs_open(CACHE, "wb");if (!file) return -1;
+    publish(X6_SCAN_TITLES, X6_LIBRARY_STOCK, "F:/x6/");
+    if (x6_titles_load()) failure(X6_SCAN_TITLE, -1, "F:/x6/");
+    publish(X6_SCAN_OPENING, X6_LIBRARY_STOCK, CACHE);
+    void *file = x6_fs_open(CACHE, "wb");
+    if (!file) {failure(X6_SCAN_OPEN, -1, CACHE);publish(X6_SCAN_FAILED, X6_LIBRARY_STOCK, CACHE);return -1;}
+    publish(X6_SCAN_SCANNING, X6_LIBRARY_STOCK, "F:/game/mame");
     if (present(modules[X6_LIBRARY_STOCK])) {
         uint32_t n = x6_stock_catalog_build(stock_staging, X6_CATALOG_MAX);
-        if (n == X6_CATALOG_MAX) status |= 1;
-        for (uint32_t i = 0; i < n; ++i) if (append(file, X6_LIBRARY_STOCK, &stock_staging[i]) < 0) break;
+        if (n == X6_CATALOG_MAX) failure(X6_SCAN_LIMIT, -5, "F:/game/mame");
+        for (uint32_t i = 0; i < n; ++i) {
+            ++scan_info.checked;
+            if (append(file, X6_LIBRARY_STOCK, &stock_staging[i]) < 0) break;
+        }
     }
     static const char *const roots[X6_LIBRARY_COUNT][3] = {
         {0}, {0}, {"F:/roms/nes", "F:/game/fc", "F:/game/nes"},
@@ -110,17 +136,19 @@ int32_t x6_libraries_build(void)
     };
     for (uint32_t lib = X6_LIBRARY_NES; lib < X6_LIBRARY_COUNT && !(status & 35u); ++lib) {
         struct scan s = {file, lib, present(modules[lib]), 0};
-        if (progress) progress(lib, used);
         for (uint32_t root = 0; root < 3 && roots[lib][root]; ++root) {
             s.directory = roots[lib][root];
+            publish(X6_SCAN_SCANNING, lib, s.directory);
             int32_t result = x6_directory_walk(s.directory, found, &s);
-            if (result < -1) status |= 16;
-            if (result == -4) status |= 32; /* Stop after uncertain close ownership. */
+            if (result < -1) failure(X6_SCAN_DIRECTORY, result, s.directory);
+            if (result == -4) failure(X6_SCAN_CLOSE_DIR, result, s.directory);
             if (result == -4 || result == -5) break;
         }
     }
-    if (x6_fs_close(file) != 0) status |= 2;
-    if (status & 2u) {used = 0;return -1;}
+    publish(X6_SCAN_FINALIZING, scan_info.library, CACHE);
+    if (x6_fs_close(file) != 0) failure(X6_SCAN_CLOSE_FILE, -3, CACHE);
+    if (status & (X6_SCAN_WRITE | X6_SCAN_CLOSE_FILE)) {used = 0;publish(X6_SCAN_FAILED, scan_info.library, CACHE);return -1;}
+    publish(X6_SCAN_SORTING, scan_info.library, 0);
     for (uint32_t i = used / 2; i > 0; --i) sift(i - 1, used);
     for (uint32_t end = used; end > 1;) {
         struct slot tmp = slots[0];slots[0] = slots[--end];slots[end] = tmp;sift(0, end);
@@ -128,6 +156,7 @@ int32_t x6_libraries_build(void)
     for (uint32_t i = 0; i < used; ++i) {
         uint32_t lib = slots[i].library;if (!counts[lib]) starts[lib] = i;++counts[lib];
     }
+    publish(status ? X6_SCAN_FAILED : X6_SCAN_READY, scan_info.library, 0);
     return status ? (int32_t)status : 0;
 }
 static uint32_t stats(uint32_t lib, uint32_t buckets[X6_LIBRARY_BUCKETS])

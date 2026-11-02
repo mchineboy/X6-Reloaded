@@ -173,11 +173,16 @@ opening Settings also preserves your position. These are menu groups; no ROM
 files are moved. Groups larger than 128 entries contain numbered game pages;
 B returns through the page, alphabet and library folders. Returning from a
 console restores its library, page and selected game. The host holds only sort
-keys in memory and reads full metadata a page at a time from `x6/library.cache`.
-The cache is rebuilt automatically at startup; a progress/count display stays
-visible. The total stock catalog is bounded at 8,192 entries and each source
-directory at 4,096 directory entries. An incomplete scan shows a warning instead
-of claiming a complete library. Saves, instructions and hidden files are excluded.
+keys in memory and reads full metadata a page at a time from `x6/LIBRARY.IDX`.
+The 8.3 cache filename and canonical backslash paths are used at the Melis file
+boundary. The cache is rebuilt automatically at startup. A dedicated progress
+screen shows the current phase/system, files checked, games found and a moving
+activity indicator; no percentage is invented while the directory total is
+unknown. Title loading, scanning, saving, sorting and opening the menu have
+distinct labels. The total stock catalog is bounded at 8,192 entries and each source
+directory at 4,096 directory entries. A failed scan shows the actual failed
+operation/path and a diagnostic code in the menu; it is never used as an
+in-progress message. Saves, instructions and hidden files are excluded.
 
 ## Add games without rebuilding
 

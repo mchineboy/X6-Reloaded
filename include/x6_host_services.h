@@ -23,5 +23,6 @@ struct x6_host_services {
     int32_t (*request_library_game)(uint32_t library, uint32_t index);
     uint32_t (*library_status)(void);                 /* nonzero: incomplete scan */
     void (*resolve_title)(struct x6_game *, uint32_t library);
+    const struct x6_scan_info *(*scan_info)(void);      /* version >= 7 */
 };
 #endif

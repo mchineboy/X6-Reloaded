@@ -45,8 +45,12 @@ static void root(struct x6_browser *b)
         directory(&b->entries[b->count++], x6_library_name(i), b->totals[i]);
     }
     if (b->incomplete) {
-        b->entries[b->count] = (struct x6_game){.title = "Library scan incomplete",
+        b->entries[b->count] = (struct x6_game){.title = "Library scan stopped",
             .id = "See SD guide", .available = X6_GAME_CATALOG};
+        copy(b->entries[b->count].maker, sizeof b->entries[b->count].maker,
+            b->error_reason[0] ? b->error_reason : "Library scan did not finish");
+        copy(b->entries[b->count].path, sizeof b->entries[b->count].path, b->error_path);
+        copy(b->entries[b->count].variant, sizeof b->entries[b->count].variant, b->error_code);
         b->map[b->count++] = X6_LIBRARY_COUNT;
     }
     b->selected = b->root_selected < b->count ? b->root_selected : 0;
@@ -54,6 +58,12 @@ static void root(struct x6_browser *b)
 void x6_browser_incomplete(struct x6_browser *b)
 {
     b->incomplete = 1;if (b->level == X6_BROWSER_ROOT) root(b);
+}
+void x6_browser_error(struct x6_browser *b, const char *reason, const char *path, uint32_t code)
+{
+    copy(b->error_reason, sizeof b->error_reason, reason);
+    copy(b->error_path, sizeof b->error_path, path);number(b->error_code, code);
+    x6_browser_incomplete(b);
 }
 static void list_games(struct x6_browser *b)
 {

@@ -543,7 +543,7 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
         const struct x6_host_services *svc;
         const uint8_t *src = (const uint8_t *)host->resource_path + 8;uint8_t *dst = (uint8_t *)&svc;
         for (uint32_t i = 0; i < sizeof svc; ++i) dst[i] = src[i];
-        if (svc && svc->version >= 1 && svc->version <= 6) host_services = svc;
+        if (svc && svc->version >= 1 && svc->version <= 7) host_services = svc;
         copy_path(resource_path, sizeof(resource_path), rom_directory, PATH_SIZE);
     } else if (host->resource_path[0]) {
         if (!copy_path(resource_path, sizeof(resource_path), host->resource_path, sizeof(host->resource_path))) {
@@ -590,6 +590,13 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
         if (x6_catalog_status() || (host_services && host_services->version >= 6
             && host_services->library_status && host_services->library_status()))
             x6_browser_incomplete(&browser);
+        if (host_services && host_services->version >= 7 && host_services->scan_info) {
+            const struct x6_scan_info *scan = host_services->scan_info();
+            if (scan && scan->errors)
+                x6_browser_error(&browser, x6_scan_error_message(scan), scan->error_path, scan->errors);
+            else if (x6_catalog_status())
+                x6_browser_error(&browser, "MAME file scan did not finish", "F:/roms/mame", x6_catalog_status());
+        }
         if (host_services && host_services->version >= 3 && host_services->restore_library
             && host_services->restore_library() >= 2) {
             uint32_t index = host_services->version >= 4 && host_services->restore_stock_game
@@ -598,8 +605,6 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
             x6_browser_focus(&browser, lib, index);
         }
         open_browser();
-        if (host_services && host_services->version >= 6 && host_services->library_status && host_services->library_status())
-            x6_menu_notice(&menu, "Library scan incomplete; check SD space");
         return 0;
     }
     from_menu = 0;
