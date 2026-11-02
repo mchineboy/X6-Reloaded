@@ -89,6 +89,9 @@ int main(void)
     assert(x6_browser_choose(&browser, 1, &index) == X6_BROWSER_NONE);
     assert(x6_browser_choose(&browser, 0, &index) == X6_BROWSER_ENTER);
     assert(x6_browser_back(&browser, 0) && browser.count == 2);
+    x6_browser_error(&browser, "Cannot open library cache", "F:/x6/LIBRARY.IDX", 64);
+    assert(!strcmp(browser.entries[1].maker, "Cannot open library cache"));
+    assert(!strcmp(browser.entries[1].path, "F:/x6/LIBRARY.IDX") && !strcmp(browser.entries[1].variant, "64"));
     puts("PASS: 400 games reachable exactly once, folder/back/cursor behavior, driver-index mapping, sparse/empty groups, missing ROMs and 512-entry capacity");
     return 0;
 }

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "x6_ui.h"
+#include "x6_library.h"
 
 static uint32_t frame[X6_UI_WIDTH * X6_UI_HEIGHT + 2];
 static struct x6_surface surface = {frame + 1, X6_UI_WIDTH, X6_UI_HEIGHT, X6_UI_WIDTH};
@@ -60,6 +61,13 @@ int main(int argc, char **argv)
         if (t == 60) save(out, "startup");
     }
     x6_ui_draw_splash(&surface, 0xffffffffu);guard_check();
+    struct x6_scan_info scan = {.phase = X6_SCAN_SCANNING, .library = X6_LIBRARY_NES,
+        .checked = 1234, .indexed = 1200};
+    x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "scan-progress");
+    scan.phase = X6_SCAN_SORTING;scan.checked = 5180;scan.indexed = 5164;
+    x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "scan-sorting");
+    scan.phase = X6_SCAN_FAILED;scan.errors = X6_SCAN_OPEN;scan.error_code = -1;
+    x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "scan-error");
 
     struct x6_game five[5] = {
         game("altbeast", "Altered Beast", "Version 1", "Sega", "1988", 0, 0),
@@ -126,6 +134,12 @@ int main(int argc, char **argv)
         tap(&blocked, X6_BTN_DOWN);assert(!blocked.notice_frames);
     }
     assert(tap(&blocked, X6_BTN_A) == X6_MENU_LAUNCH);
+    struct x6_game scan_error = {.title = "Library scan stopped", .available = X6_GAME_CATALOG,
+        .maker = "Cannot open library cache", .path = "F:/x6/LIBRARY.IDX", .variant = "64"};
+    x6_menu_init(&blocked, &scan_error, 1, 0);settle(&blocked, 1);
+    assert(tap(&blocked, X6_BTN_A) == X6_MENU_NONE);
+    assert(strstr(blocked.notice, "Cannot open") && strstr(blocked.notice, "64") && !strstr(blocked.notice, "space"));
+    settle(&blocked, 200);x6_menu_draw(&blocked, &surface);guard_check();save(out, "scan-error-details");
 
     /* A and Start both launch an available game. */
     tap(&m, X6_BTN_DOWN);

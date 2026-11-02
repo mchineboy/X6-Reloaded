@@ -46,7 +46,7 @@ def main():
     out = root / 'build/ui-preview'
     out.mkdir(parents=True, exist_ok=True)
     binary = out / 'ui-host-test'
-    sources = ['src/ui/gfx.c', 'src/ui/menu.c', 'src/ui/splash.c', 'src/ui/font_data.c', 'tests/ui_host.c']
+    sources = ['src/ui/gfx.c', 'src/ui/menu.c', 'src/ui/splash.c', 'src/ui/scan.c', 'src/ui/library.c', 'src/ui/font_data.c', 'tests/ui_host.c']
     subprocess.run([args.cc, '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
                     '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                     '-I' + str(root / 'include'), *[str(root / s) for s in sources],

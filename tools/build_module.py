@@ -87,7 +87,7 @@ def main():
              '-ffunction-sections','-fdata-sections','-fno-builtin','-ffreestanding',
              '-fno-stack-protector','-fno-unwind-tables','-fno-asynchronous-unwind-tables',
              *defines,'-I'+str(root/'include'),'-DX6_MELIS_RUNTIME','-DGIT_VERSION="181b42e"','-DNDEBUG']
-    own = ['src/arcade/frontend.c','src/arcade/music.c','src/arcade/catalog.c','src/arcade/catalog_mame.c','src/ui/gfx.c','src/ui/menu.c','src/ui/browser.c','src/ui/library.c','src/ui/font_data.c','src/arcade/module.c','src/arcade/timing.c','src/arcade/monitor.c','src/runtime/timer.S','src/runtime/memory.c',
+    own = ['src/arcade/frontend.c','src/arcade/music.c','src/arcade/catalog.c','src/arcade/catalog_mame.c','src/ui/gfx.c','src/ui/menu.c','src/ui/browser.c','src/ui/library.c','src/ui/font_data.c','src/arcade/module.c','src/arcade/timing.c','src/arcade/monitor.c','src/runtime/timer.S','src/runtime/memory.c','src/runtime/path.c','src/runtime/open.c',
            'src/runtime/files.c','src/runtime/newlib.c','src/runtime/stack.c','src/runtime/stack.S','src/probe/services.S']
     if args.area_scale:own+=['src/arcade/scale.c']
     if args.five: own+=([] if expanded else ['src/arcade/drivers.c'])+['src/runtime/large_memory.c','src/runtime/pages.S']

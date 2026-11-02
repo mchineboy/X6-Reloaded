@@ -4,14 +4,14 @@
 .cpu arm926ej-s
 .arm
 
-.section .text.x6_fs_open,"ax",%progbits
-.global x6_fs_open
-.type x6_fs_open,%function
-x6_fs_open:
+.section .text.x6_fs_open_raw,"ax",%progbits
+.global x6_fs_open_raw
+.type x6_fs_open_raw,%function
+x6_fs_open_raw:
     push {r4, lr}
     svc #0x2602
     pop {r4, pc}
-.size x6_fs_open, .-x6_fs_open
+.size x6_fs_open_raw, .-x6_fs_open_raw
 
 .section .text.x6_fs_read,"ax",%progbits
 .global x6_fs_read
