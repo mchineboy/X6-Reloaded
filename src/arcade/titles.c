@@ -95,7 +95,11 @@ void x6_titles_filename(struct x6_game *g, const char *name)
     while (name[n]) {if (name[n] == '.') dot = n;++n;}
     if (!dot) dot = n;
     uint32_t start = 0;while (start < dot && name[start] >= '0' && name[start] <= '9') ++start;
-    if (start && start < dot && (name[start] == '.' || name[start] == '-' || name[start] == ' ' || name[start] == '_')) {
+    /* Only infer a stock catalog code from a zero-padded 3/4-digit number.
+       Other leading numbers can be part of the title (8-Eyes, 1943-kai).
+       Ambiguous unpadded catalog names retain their number unless overridden. */
+    if ((start == 3 || start == 4) && name[0] == '0' && start < dot
+            && (name[start] == '.' || name[start] == '-' || name[start] == ' ' || name[start] == '_')) {
         while (start < dot && (name[start] == '.' || name[start] == '-' || name[start] == ' ' || name[start] == '_')) ++start;
         if (start == dot) start = 0;
     } else start = 0;

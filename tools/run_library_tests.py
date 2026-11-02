@@ -16,9 +16,11 @@ def write(root, relative, content):
 
 
 def fixtures(root):
+    numeric = ('8-Eyes', '1943-kai', '1943_Kai', '10-Yard Fight')
     for folder in ('fc', 'nes'):
         for i in range(3000):
-            write(root, f'game/{folder}/{i:04d}. Game {folder} {i:04d}.nes', b'NES\x1a' + bytes(12))
+            name = numeric[i] if folder == 'nes' and i < len(numeric) else f'{i:04d}. Game {folder} {i:04d}'
+            write(root, f'game/{folder}/{name}.nes', b'NES\x1a' + bytes(12))
     write(root, 'roms/nes/broken.nes', b'invalid header')
     write(root, 'roms/nes/compressed.zip', b'unsupported archive')
     write(root, 'game/md/misplaced.nes', b'NES\x1a' + bytes(12))

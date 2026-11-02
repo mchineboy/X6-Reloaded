@@ -6,6 +6,7 @@
 #include "x6_path.h"
 #include "x6_runtime.h"
 #include "x6_scan_log.h"
+#include "x6_titles.h"
 extern const char *x6_test_root, *x6_test_output;
 extern uint32_t x6_test_opens, x6_test_closes;
 extern uint32_t x6_test_file_opens, x6_test_file_closes, x6_test_fail_write;
@@ -31,9 +32,34 @@ static void progress(const struct x6_scan_info *p)
 static struct x6_browser browser;
 static struct x6_game page[X6_LIBRARY_PAGE];
 static uint32_t indices[X6_LIBRARY_PAGE], seen[8192];
+static void check_filename_titles(void)
+{
+    static const struct {const char *filename, *title;uint32_t bucket;} cases[] = {
+        {"8-Eyes.nes", "8-Eyes", 0},
+        {"1943-kai.nes", "1943-kai", 0},
+        {"1943_Kai.nes", "1943 Kai", 0},
+        {"10-Yard Fight.nes", "10-Yard Fight", 0},
+        {"1943 The Battle of Midway.nes", "1943 The Battle of Midway", 0},
+        {"1943. The Battle of Midway.nes", "1943. The Battle of Midway", 0},
+        {"1942.nes", "1942", 0},
+        {"0008.8-Eyes.nes", "8-Eyes", 0},
+        {"0012 1943-kai.nes", "1943-kai", 0},
+        {"0212.Ikari (J).nes", "Ikari (J)", 2},
+        {"001 Cryptic.nes", "Cryptic", 1},
+        {"043_-_Super_Dodgeball_Advance.nes", "Super Dodgeball Advance", 4},
+        {"0000.nes", "0000", 0},
+        {"0001_.nes", "0001 ", 0},
+    };
+    for (uint32_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+        struct x6_game g = {0};x6_titles_filename(&g, cases[i].filename);
+        assert(!strcmp(g.title, cases[i].title));
+        assert(x6_library_bucket(g.title) == cases[i].bucket);
+    }
+}
 int main(int argc, char **argv)
 {
     assert(argc == 3 || argc == 4);x6_test_root = argv[1];x6_test_output = argv[2];
+    check_filename_titles();
     char normalized[256];
     assert(x6_path_normalize(normalized, "f:/x6/LIBRARY.IDX") && !strcmp(normalized, "F:\\x6\\LIBRARY.IDX"));
     assert(!x6_fs_open("F:/../elsewhere", "rb") && !x6_fs_open("B:/x6/LIBRARY.IDX", "rb"));
@@ -81,7 +107,18 @@ int main(int argc, char **argv)
         assert(counts[X6_LIBRARY_NES] == 6003);
         assert(counts[X6_LIBRARY_STOCK] == 2);
         assert(counts[X6_LIBRARY_SNES] == 2 && counts[X6_LIBRARY_MD] == 2);
-        struct x6_game g;uint32_t found = 0;
+        struct x6_game g;uint32_t found = 0, numeric = 0;
+        const char *numeric_titles[] = {"8-Eyes", "1943-kai", "1943 Kai", "10-Yard Fight"};
+        for (uint32_t i = 0; i < counts[X6_LIBRARY_NES]; ++i) {
+            assert(x6_libraries_game(X6_LIBRARY_NES, i, &g) == 0);
+            for (uint32_t j = 0; j < 4; ++j) if (!strcmp(g.title, numeric_titles[j])) {
+                uint32_t bucket, offset;
+                assert(g.available == X6_GAME_READY);
+                assert(x6_libraries_provider.position(X6_LIBRARY_NES, i, &bucket, &offset) == 0 && bucket == 0);
+                assert(!(numeric & (1u << j)));numeric |= 1u << j;
+            }
+        }
+        assert(numeric == 15);
         for (uint32_t i = 0; i < counts[X6_LIBRARY_STOCK]; ++i) {
             assert(x6_libraries_game(X6_LIBRARY_STOCK, i, &g) == 0);
             if (!strcmp(g.id, "doubledr")) {
