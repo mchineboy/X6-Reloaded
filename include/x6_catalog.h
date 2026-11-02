@@ -14,6 +14,8 @@ uint32_t x6_catalog_build(struct x6_game *out, uint32_t capacity, const char *ro
  * retain supported-filename probing through x6_catalog_build. */
 uint32_t x6_catalog_scan(struct x6_game *out, uint32_t capacity, const char *rom_directory,
                          x6_directory_walker walk);
+void x6_catalog_sort(struct x6_game *games, uint32_t count);
+uint32_t x6_catalog_status(void);
 
 /* Split "Title (Variant)" into its two parts. Exposed for host tests. */
 void x6_catalog_split_title(const char *description, char *title, uint32_t title_capacity,

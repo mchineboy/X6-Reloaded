@@ -9,6 +9,8 @@
 #include "x6_stock_catalog.h"
 #include "x6_catalog.h"
 #include "x6_runtime.h"
+#include "x6_library.h"
+#include "x6_titles.h"
 
 #define mod_install_(p, m)   SVC(0x2805, p, m, 0, 0)
 #define mod_open_(id, m)     SVC(0x2800, id, m, 0, 0)
@@ -42,17 +44,19 @@ static struct x6_host_callbacks cb;
 static struct x6_session session;
 static uint32_t stock_active, stock_ready, stock_requested, stockbuf, blocked_buttons;
 static uint32_t restore_library;
-static struct x6_game original_games[X6_CATALOG_MAX];
+static struct x6_game original_game;
 static uint32_t original_count, original_selected, legacy_selected;
+static uint32_t original_library = X6_LIBRARY_STOCK, library_status;
 static uint32_t stock_w, stock_h, stock_pitch, stock_video_error;
 #define STOCK_PAGES ((X6_STOCK_MAX_SIDE * X6_STOCK_MAX_SIDE * 4u) / 1024u)
-#define STOCK_MODULE "f:\\x6\\stock\\fba.mod"
 
 void *x6_directory_open_raw(const char *path) {return (void *)SVC(0x260d, path, 0, 0, 0);}
 const uint8_t *x6_directory_read_raw(void *handle) {return (const uint8_t *)SVC(0x260f, handle, 0, 0, 0);}
 int32_t x6_directory_close_raw(void *handle) {return (int32_t)SVC(0x260e, handle, 0, 0, 0);}
 void *x6_fs_open(const char *path, const char *mode) {return (void *)fopen_(path, mode);}
 uint32_t x6_fs_read(void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2604, data, size, count, handle);}
+uint32_t x6_fs_write(const void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2605, data, size, count, handle);}
+int32_t x6_fs_seek(void *handle, int32_t offset, int32_t origin) {return (int32_t)SVC(0x2606, handle, offset, origin, 0);}
 int32_t x6_fs_close(void *handle) {return (int32_t)fclose_(handle);}
 
 static void say(const char *k, uint32_t v) { uputs("[X6MENU] "); uputs(k); uputs("="); uhex(v); uputs("\r\n"); }
@@ -216,28 +220,33 @@ static void lcd_brightness(uint32_t level)
 static void svc_set_brightness(uint32_t level) { brightness = level; if (!blanked) lcd_brightness(level); }
 static void svc_set_idle(uint32_t blank_s, uint32_t off_s) { blank_ticks = blank_s * 100u; off_ticks = off_s * 100u; last_input = ticks_(); }
 static uint32_t svc_stock_available(void) { return stock_ready; }
+static int32_t svc_request_library_game(uint32_t library, uint32_t index)
+{
+    struct x6_game g;
+    if (!library || library >= X6_LIBRARY_COUNT || stock_active || stock_requested
+        || x6_libraries_game(library, index, &g) != 0 || g.available != X6_GAME_READY) return -1;
+    original_game = g;original_library = library;original_selected = index;stock_requested = 1;return 0;
+}
 static int32_t svc_request_stock(void)
 {
-    if (!stock_ready || stock_active || stock_requested) return -1;
-    original_selected = legacy_selected;stock_requested = 1;return 0;
+    return stock_ready ? svc_request_library_game(X6_LIBRARY_STOCK, legacy_selected) : -1;
 }
 static uint32_t svc_restore_library(void) { return restore_library; }
 static uint32_t svc_stock_count(void) {return original_count;}
 static int32_t svc_stock_metadata(uint32_t index, struct x6_game *out)
 {
-    if (!out || index >= original_count) return -1;
-    *out = original_games[index];return 0;
+    return x6_libraries_game(X6_LIBRARY_STOCK, index, out);
 }
 static int32_t svc_request_stock_game(uint32_t index)
 {
-    if (index >= original_count || original_games[index].available != X6_GAME_READY
-        || stock_active || stock_requested) return -1;
-    original_selected = index;stock_requested = 1;return 0;
+    return svc_request_library_game(X6_LIBRARY_STOCK, index);
 }
 static uint32_t svc_restore_stock_game(void) {return original_selected;}
+static uint32_t svc_library_status(void) {return library_status;}
 static const struct x6_host_services host_services = {
-    5, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
-    svc_stock_count, svc_stock_metadata, svc_request_stock_game, svc_restore_stock_game, x6_directory_walk
+    6, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
+    svc_stock_count, svc_stock_metadata, svc_request_stock_game, svc_restore_stock_game, x6_directory_walk,
+    &x6_libraries_provider, svc_request_library_game, svc_library_status, x6_titles_apply
 };
 
 static int32_t install_module(const char *path) { return (int32_t)mod_install_(path, 0); }
@@ -252,13 +261,6 @@ static const struct x6_module_ops module_ops = {
     install_module, open_module, module_interface, close_module, uninstall_module
 };
 
-static uint32_t file_present(const char *path)
-{
-    uint32_t f = fopen_(path, "rb");
-    if (!f) return 0;
-    fclose_(f);return 1;
-}
-
 /* Return -2 if module-manager ownership could not be released. In that case
  * no replacement may be installed at the shared 0xe9100000 address. */
 static int32_t start_emulator(uint32_t stock)
@@ -266,7 +268,7 @@ static int32_t start_emulator(uint32_t stock)
     if (x6_session_stop(&session) != 0) return -2;
     if (stockbuf) {pfree_(stockbuf, STOCK_PAGES);stockbuf = 0;}
     stock_active = stock;stock_requested = 0;stock_video_error = 0;
-    if (stock) restore_library = 2; /* Reopen Original Arcade when MAME returns. */
+    if (stock) restore_library = original_library + 1; /* Reopen the actual stock library. */
     blocked_buttons = mask; /* Ignore every currently held button until release. */
     acount = 0;acalls = 0;
     if (afp) fioctrl_(afp, 42, 0, 0); /* Discard the previous engine's queued music. */
@@ -274,11 +276,11 @@ static int32_t start_emulator(uint32_t stock)
     memset(&cb, 0, sizeof cb);
     cb.submit_audio = audio_cb;cb.get_output_buffer = getbuf_cb;
     if (stock) {
-        if (original_selected >= original_count) return -1;
+        if (original_game.available != X6_GAME_READY || !original_library || original_library >= X6_LIBRARY_COUNT) return -1;
         stockbuf = palloc_(STOCK_PAGES);
         if (!stockbuf) return -1;
         memset((void *)stockbuf, 0, STOCK_PAGES * 1024u);
-        const char *path = original_games[original_selected].path;
+        const char *path = original_game.path;
         uint32_t parent = 0;
         for (uint32_t i = 0; path[i] && i + 1 < sizeof cb.resource_path; ++i) {
             cb.resource_path[i] = path[i];
@@ -292,8 +294,8 @@ static int32_t start_emulator(uint32_t stock)
         memcpy(cb.resource_path + 8, &hp, sizeof hp);
     }
     int32_t result = x6_session_start(&session, &module_ops,
-        stock ? STOCK_MODULE : "f:\\x6\\arcade.mod", &cb,
-        stock ? original_games[original_selected].path : "f:\\game\\cps\\X6-ARCADE.zip");
+        stock ? x6_library_module(original_library) : "f:\\x6\\arcade.mod", &cb,
+        stock ? original_game.path : "f:\\game\\cps\\X6-ARCADE.zip");
     say(stock ? "stock_load" : "mame_load", (uint32_t)result);
     if (result != 0) return session.id ? -2 : -1;
     if (stock && !getbuf_cb()) return -1;
@@ -309,6 +311,19 @@ static void present(void)
 {
     copy_frame((uint32_t *)front, (const uint32_t *)gbuf, GW * GH);
     SVC(0x2515, front, GW * GH * 4, 0, 0);
+}
+
+static void catalog_progress(uint32_t library, uint32_t count)
+{
+    struct x6_surface surface = {(uint32_t *)gbuf, GW, GH, GW};
+    x6_ui_draw_splash(&surface, 60);
+    x6_gfx_fill(&surface, 0, 192, GW, 48, 0xff05060du);
+    x6_text_draw(&surface, 16, 198, x6_library_name(library), 1, 0xffffffffu);
+    char line[32] = {0}, reverse[12];uint32_t n = 0, at = 0;
+    do {reverse[n++] = (char)('0' + count % 10);count /= 10;} while (count);
+    while (n) line[at++] = reverse[--n];
+    const char *suffix = " files found";while (*suffix && at + 1 < sizeof line) line[at++] = *suffix++;
+    x6_text_draw(&surface, 16, 214, line, 1, 0xffa0a0a0u);present();
 }
 
 int main(void *arg)
@@ -366,8 +381,17 @@ int main(void *arg)
     kh = kgrab_("LKeyBoardDev", key_cb);
     say("keys", kh);
 
-    if (file_present(STOCK_MODULE)) original_count = x6_stock_catalog_build(original_games, X6_CATALOG_MAX);
-    legacy_selected = x6_stock_catalog_legacy(original_games, original_count);
+    x6_libraries_progress(catalog_progress);
+    library_status = x6_libraries_build() != 0;
+    uint32_t buckets[X6_LIBRARY_BUCKETS];
+    original_count = x6_libraries_provider.stats(X6_LIBRARY_STOCK, buckets);
+    legacy_selected = original_count;
+    for (uint32_t i = 0; i < original_count; ++i) {
+        struct x6_game g;
+        if (x6_libraries_game(X6_LIBRARY_STOCK, i, &g) == 0 && g.id[0] == '2' && g.id[1] == '0'
+            && g.id[2] == '2' && g.id[3] == '0' && g.id[4] == 'b' && g.id[5] == 'b' && !g.id[6]
+            && g.available == X6_GAME_READY) {legacy_selected = i;break;}
+    }
     stock_ready = legacy_selected < original_count;
     say("original_games", original_count);
     int32_t result = start_emulator(0);
@@ -423,7 +447,7 @@ int main(void *arg)
                 continue;
             }
             struct x6_surface surface = {(uint32_t *)gbuf, GW, GH, GW};
-            x6_ui_draw_pause(&surface, failed ? "Original Arcade" : original_games[original_selected].title,
+            x6_ui_draw_pause(&surface, failed ? x6_library_name(original_library) : original_game.title,
                              items, count, pause_selected, note, pause_dim);
             pause_dim = 0;present();sleep_(2);
             continue;

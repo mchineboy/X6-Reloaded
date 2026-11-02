@@ -53,7 +53,7 @@ int32_t x6_text_draw(struct x6_surface *s, int32_t x, int32_t y, const char *tex
  * means eligible to try, not that the ROM contents or gameplay were validated. */
 enum x6_game_availability {
     X6_GAME_MISSING = 0, X6_GAME_READY = 1, X6_GAME_UNSUPPORTED,
-    X6_GAME_INVALID, X6_GAME_FORMAT
+    X6_GAME_INVALID, X6_GAME_FORMAT, X6_GAME_ENGINE, X6_GAME_CATALOG
 };
 
 struct x6_game {

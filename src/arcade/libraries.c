@@ -1,0 +1,178 @@
+/* Discover stock libraries at boot. Keep only title/offset keys in RAM; full
+ * metadata lives in a disposable SD cache and is read one browser page at a time. */
+#include "x6_library.h"
+#include "x6_catalog.h"
+#include "x6_stock_catalog.h"
+#include "x6_titles.h"
+#include "x6_directory.h"
+#include "x6_runtime.h"
+#include "x6_rom_file.h"
+#define LIMIT 8192u
+#define CACHE "F:/x6/library.cache"
+struct slot {char title[40];uint32_t offset, library, checksum;};
+static struct slot slots[LIMIT];
+static struct x6_game stock_staging[X6_CATALOG_MAX];
+static uint32_t used, status, counts[X6_LIBRARY_COUNT], starts[X6_LIBRARY_COUNT];
+static void (*progress)(uint32_t, uint32_t);
+void x6_libraries_progress(void (*callback)(uint32_t, uint32_t)) {progress = callback;}
+static uint32_t checksum(const struct x6_game *g)
+{
+    const uint8_t *p = (const uint8_t *)g;uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < sizeof *g; ++i) h = (h ^ p[i]) * 16777619u;
+    return h;
+}
+static const char *const modules[X6_LIBRARY_COUNT] = {0, "F:/x6/stock/fba.mod", "F:/x6/stock/fc.mod",
+    "F:/x6/stock/sfc.mod", "F:/x6/stock/md.mod", "F:/x6/stock/gbc.mod", "F:/x6/stock/gbc.mod", "F:/x6/stock/gba.mod"};
+const char *x6_library_module(uint32_t library) {return library < X6_LIBRARY_COUNT ? modules[library] : 0;}
+static void copy(char *out, uint32_t cap, const char *in)
+{
+    uint32_t i = 0;while (in[i] && i + 1 < cap) {out[i] = in[i];++i;}out[i] = 0;
+}
+static uint32_t present(const char *path)
+{
+    void *f = x6_fs_open(path, "rb");if (!f) return 0;return x6_fs_close(f) == 0;
+}
+static int32_t append(void *file, uint32_t library, struct x6_game *g)
+{
+    if (used == LIMIT) {status |= 1;return -1;}
+    x6_titles_apply(g, library);
+    if (x6_fs_write(g, 1, sizeof *g, file) != sizeof *g) {status |= 2;return -1;}
+    struct slot *s = &slots[used];copy(s->title, sizeof s->title, g->title);
+    s->offset = used * sizeof *g;s->library = library;s->checksum = checksum(g);++used;
+    if (progress && used % 64u == 0) progress(library, used);
+    return 0;
+}
+struct scan {void *file;uint32_t library, engine;const char *directory;};
+static uint32_t extension(const char *name, uint32_t library)
+{
+    const char *dot = 0;for (const char *p = name; *p; ++p) if (*p == '.') dot = p;
+    if (!dot) return 0;
+    if (library == X6_LIBRARY_NES) return x6_rom_equal(dot, ".nes");
+    if (library == X6_LIBRARY_SNES) return x6_rom_equal(dot, ".sfc") || x6_rom_equal(dot, ".smc");
+    if (library == X6_LIBRARY_MD) return x6_rom_equal(dot, ".bin") || x6_rom_equal(dot, ".smd") || x6_rom_equal(dot, ".md") || x6_rom_equal(dot, ".gen");
+    if (library == X6_LIBRARY_GB) return x6_rom_equal(dot, ".gb");
+    if (library == X6_LIBRARY_GBC) return x6_rom_equal(dot, ".gbc");
+    return library == X6_LIBRARY_GBA && x6_rom_equal(dot, ".gba");
+}
+static int32_t found(const struct x6_directory_entry *e, void *context)
+{
+    struct scan *s = context;uint32_t library = s->library, supported = extension(e->name, library), stem;
+    if (!supported) {
+        uint32_t rom = x6_rom_type(e->name, &stem);
+        for (uint32_t lib = X6_LIBRARY_NES; lib < X6_LIBRARY_COUNT; ++lib) {
+            if (extension(e->name, lib)) {library = lib;supported = rom = 1;break;}
+        }
+        if (!rom) return 0;
+    }
+    struct x6_game g = {0};
+    if (!x6_directory_join(g.path, sizeof g.path, s->directory, e->name)) {status |= 4;return 0;}
+    copy(g.id, sizeof g.id, e->name);copy(g.maker, sizeof g.maker, x6_library_name(library));
+    copy(g.variant, sizeof g.variant, "Playback unverified");x6_titles_filename(&g, e->name);
+    g.available = !e->size_low && !e->size_high ? X6_GAME_INVALID
+        : !supported ? X6_GAME_FORMAT : x6_titles_console(&g, library, e->size_low);
+    uint32_t engine = library == s->library ? s->engine : present(modules[library]);
+    if (g.available == X6_GAME_READY && !engine) g.available = X6_GAME_ENGINE;
+    return append(s->file, library, &g) < 0 ? -5 : 0;
+}
+static int32_t compare(const struct slot *a, const struct slot *b)
+{
+    if (a->library != b->library) return a->library < b->library ? -1 : 1;
+    for (uint32_t i = 0;; ++i) {
+        char x = x6_rom_lower(a->title[i]), y = x6_rom_lower(b->title[i]);
+        if (x != y) return x < y ? -1 : 1;if (!x) break;
+    }
+    return a->offset < b->offset ? -1 : a->offset != b->offset;
+}
+static void sift(uint32_t at, uint32_t end)
+{
+    while (at * 2 + 1 < end) {
+        uint32_t child = at * 2 + 1;
+        if (child + 1 < end && compare(&slots[child], &slots[child + 1]) < 0) ++child;
+        if (compare(&slots[at], &slots[child]) >= 0) return;
+        struct slot tmp = slots[at];slots[at] = slots[child];slots[child] = tmp;at = child;
+    }
+}
+int32_t x6_libraries_build(void)
+{
+    used = 0;status = x6_titles_load() ? 8u : 0u;
+    for (uint32_t i = 0; i < X6_LIBRARY_COUNT; ++i) counts[i] = starts[i] = 0;
+    void *file = x6_fs_open(CACHE, "wb");if (!file) return -1;
+    if (present(modules[X6_LIBRARY_STOCK])) {
+        uint32_t n = x6_stock_catalog_build(stock_staging, X6_CATALOG_MAX);
+        if (n == X6_CATALOG_MAX) status |= 1;
+        for (uint32_t i = 0; i < n; ++i) if (append(file, X6_LIBRARY_STOCK, &stock_staging[i]) < 0) break;
+    }
+    static const char *const roots[X6_LIBRARY_COUNT][3] = {
+        {0}, {0}, {"F:/roms/nes", "F:/game/fc", "F:/game/nes"},
+        {"F:/roms/snes", "F:/game/sfc", "F:/game/smc"},
+        {"F:/roms/md", "F:/game/md", "F:/game/smd"}, {"F:/roms/gb", "F:/game/gb", 0},
+        {"F:/roms/gbc", "F:/game/gbc", 0}, {"F:/roms/gba", "F:/game/gba", 0}
+    };
+    for (uint32_t lib = X6_LIBRARY_NES; lib < X6_LIBRARY_COUNT && !(status & 35u); ++lib) {
+        struct scan s = {file, lib, present(modules[lib]), 0};
+        if (progress) progress(lib, used);
+        for (uint32_t root = 0; root < 3 && roots[lib][root]; ++root) {
+            s.directory = roots[lib][root];
+            int32_t result = x6_directory_walk(s.directory, found, &s);
+            if (result < -1) status |= 16;
+            if (result == -4) status |= 32; /* Stop after uncertain close ownership. */
+            if (result == -4 || result == -5) break;
+        }
+    }
+    if (x6_fs_close(file) != 0) status |= 2;
+    if (status & 2u) {used = 0;return -1;}
+    for (uint32_t i = used / 2; i > 0; --i) sift(i - 1, used);
+    for (uint32_t end = used; end > 1;) {
+        struct slot tmp = slots[0];slots[0] = slots[--end];slots[end] = tmp;sift(0, end);
+    }
+    for (uint32_t i = 0; i < used; ++i) {
+        uint32_t lib = slots[i].library;if (!counts[lib]) starts[lib] = i;++counts[lib];
+    }
+    return status ? (int32_t)status : 0;
+}
+static uint32_t stats(uint32_t lib, uint32_t buckets[X6_LIBRARY_BUCKETS])
+{
+    if (lib >= X6_LIBRARY_COUNT || !buckets) return 0;
+    for (uint32_t i = 0; i < X6_LIBRARY_BUCKETS; ++i) buckets[i] = 0;
+    for (uint32_t i = 0; i < counts[lib]; ++i) ++buckets[x6_library_bucket(slots[starts[lib] + i].title)];
+    return counts[lib];
+}
+static int32_t read_game(void *f, uint32_t lib, uint32_t index, struct x6_game *g)
+{
+    if (!g || lib >= X6_LIBRARY_COUNT || index >= counts[lib]) return -1;
+    if (x6_fs_seek(f, (int32_t)slots[starts[lib] + index].offset, 0) != 0
+        || x6_fs_read(g, 1, sizeof *g, f) != sizeof *g) return -1;
+    /* Match the cache record to the seal retained in RAM from this boot. */
+    if (checksum(g) != slots[starts[lib] + index].checksum
+        || g->path[0] != 'F' || g->path[1] != ':' || g->path[255] || g->title[39]
+        || g->id[15] || g->maker[31] || g->year[7] || g->variant[23]) return -1;
+    return 0;
+}
+int32_t x6_libraries_game(uint32_t lib, uint32_t index, struct x6_game *g)
+{
+    void *f = x6_fs_open(CACHE, "rb");if (!f) return -1;
+    int32_t result = read_game(f, lib, index, g);if (x6_fs_close(f) != 0) result = -1;return result;
+}
+static int32_t page(uint32_t lib, uint32_t bucket, uint32_t offset, struct x6_game *out, uint32_t *indices, uint32_t capacity)
+{
+    if (lib >= X6_LIBRARY_COUNT || bucket > X6_LIBRARY_ALL || !out || !indices || capacity > X6_LIBRARY_PAGE) return -1;
+    void *f = x6_fs_open(CACHE, "rb");if (!f) return -1;
+    uint32_t matched = 0, n = 0;int32_t result = 0;
+    for (uint32_t i = 0; i < counts[lib] && n < capacity; ++i) {
+        if (bucket < X6_LIBRARY_BUCKETS && x6_library_bucket(slots[starts[lib] + i].title) != bucket) continue;
+        if (matched++ < offset) continue;
+        if (read_game(f, lib, i, &out[n]) != 0) {result = -1;break;}
+        indices[n++] = i;
+    }
+    if (x6_fs_close(f) != 0) result = -1;
+    return result < 0 ? -1 : (int32_t)n;
+}
+static int32_t position(uint32_t lib, uint32_t index, uint32_t *bucket, uint32_t *offset)
+{
+    if (lib >= X6_LIBRARY_COUNT || index >= counts[lib] || !bucket || !offset) return -1;
+    *bucket = x6_library_bucket(slots[starts[lib] + index].title);*offset = 0;
+    for (uint32_t i = 0; i < index; ++i)
+        if (x6_library_bucket(slots[starts[lib] + i].title) == *bucket) ++*offset;
+    return 0;
+}
+const struct x6_library_provider x6_libraries_provider = {stats, page, position};

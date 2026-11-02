@@ -23,6 +23,58 @@ def shortname(name):
     return base.ljust(8).encode() + ext.ljust(3).encode()
 
 
+def directory_names(children):
+    """Deterministic unique DOS aliases plus VFAT names, without renaming ROMs."""
+    result, used, casefolded = {}, set(), set()
+    for path, _ in children:
+        name = path.name
+        if not name or name[-1] in ' .' or any(ord(c) < 32 or c in '\\/:*?"<>|' for c in name):
+            raise ValueError('Invalid FAT filename: ' + name)
+        if len(name.encode('utf-16-le')) > 510 or name.casefold() in casefolded:
+            raise ValueError('Duplicate or overlong FAT filename: ' + name)
+        casefolded.add(name.casefold())
+        try:
+            if not name.isascii():
+                raise ValueError('Unicode requires a long-name entry')
+            dos = shortname(name)
+            used.add(dos);result[path] = (dos, [])
+        except ValueError:
+            pass
+    for path, _ in children:
+        if path in result:
+            continue
+        name = path.name
+        base, dot, ext = name.rpartition('.')
+        if not dot:
+            base, ext = name, ''
+        clean = lambda text: ''.join(c for c in text.upper() if c.isascii() and (c.isalnum() or c == '_'))
+        base, ext = clean(base) or 'FILE', clean(ext)[:3]
+        for number in range(1, 100000):
+            tail = '~' + str(number)
+            dos = (base[:8-len(tail)] + tail).ljust(8).encode() + ext.ljust(3).encode()
+            if dos not in used:
+                break
+        else:
+            raise ValueError('DOS alias space exhausted')
+        used.add(dos)
+        checksum = 0
+        for byte in dos:
+            checksum = (((checksum & 1) << 7) + (checksum >> 1) + byte) & 255
+        encoded = name.encode('utf-16-le')
+        units = [encoded[i:i+2] for i in range(0, len(encoded), 2)]
+        count = math.ceil(len(units)/13)
+        units = (units + [b'\0\0'] + [b'\xff\xff']*13)[:count*13]
+        long = []
+        for ordinal in range(count, 0, -1):
+            item = bytearray(32);item[0] = ordinal | (0x40 if ordinal == count else 0)
+            item[11] = 0x0f;item[13] = checksum
+            part = b''.join(units[(ordinal-1)*13:ordinal*13])
+            item[1:11], item[14:26], item[28:32] = part[:10], part[10:22], part[22:26]
+            long.append(item)
+        result[path] = (dos, long)
+    return result
+
+
 def entry(name, attr, first, size=0):
     result = bytearray(32)
     result[:11] = name
@@ -42,8 +94,8 @@ def build(output, files, stage, payload, size_mb=512):
     files = dict(files)
     total_bytes = sum(Path(p).stat().st_size for p in files.values())
     size_mb = max(size_mb, math.ceil((total_bytes + 64 * 1024**2) / (128 * 1024**2)) * 128)
-    if size_mb > 2048:
-        raise ValueError('This X6 image recipe is limited to 2 GiB')
+    if size_mb > 32768:
+        raise ValueError('This X6 FAT32 image recipe is limited to 32 GiB')
     total_sectors = size_mb * 2048
     volume = total_sectors - PARTITION
     fat_sectors = math.ceil((volume - RESERVED + 2 * SPC) * 4 / (SPC * SECTOR + 8))
@@ -60,18 +112,15 @@ def build(output, files, stage, payload, size_mb=512):
         source = Path(source)
         if not stat.S_ISREG(source.stat().st_mode):
             raise ValueError('Image inputs must be regular files')
-        shortname(path.name)
+        if source.stat().st_size > 0xffffffff:
+            raise ValueError('A FAT32 file cannot exceed 4 GiB minus one byte')
     for d in sorted(dirs, key=str):
         if d != PurePosixPath('.'):
-            shortname(d.name)
             dirs[d.parent].append((d, None))
     for name, source in sorted(files.items()):
         p = PurePosixPath(name)
         dirs[p.parent].append((p, Path(source)))
-    for children in dirs.values():
-        names = [shortname(p.name) for p, _ in children]
-        if len(set(names)) != len(names):
-            raise ValueError('Duplicate FAT name')
+    names = {directory: directory_names(children) for directory, children in dirs.items()}
     fat = bytearray(fat_sectors * SECTOR)
     struct.pack_into('<II', fat, 0, 0x0ffffff8, 0xffffffff)
     allocated, next_cluster = {}, 2
@@ -90,7 +139,7 @@ def build(output, files, stage, payload, size_mb=512):
 
     root = PurePosixPath('.')
     for directory in sorted(dirs, key=lambda p: (len(p.parts), str(p))):
-        allocate(directory, (len(dirs[directory]) + 3) * 32)
+        allocate(directory, (sum(1 + len(names[directory][p][1]) for p, _ in dirs[directory]) + 3) * 32)
     for name, source in sorted(files.items()):
         allocate(PurePosixPath(name), Path(source).stat().st_size)
     if allocated[root][0] != 2:
@@ -142,7 +191,10 @@ def build(output, files, stage, payload, size_mb=512):
                 parent = 0 if directory.parent == root else allocated[directory.parent][0]
                 data += entry(b'..         ', 0x10, parent)
             for path, source in sorted(children, key=lambda pair: str(pair[0])):
-                data += entry(shortname(path.name), 0x10 if source is None else 0x20,
+                dos, long = names[directory][path]
+                for item in long:
+                    data += item
+                data += entry(dos, 0x10 if source is None else 0x20,
                               allocated[path][0], source.stat().st_size if source else 0)
             put(data_start + (first - 2) * SPC, data)
         for name, source in sorted(files.items()):

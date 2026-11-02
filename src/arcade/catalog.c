@@ -2,6 +2,8 @@
  * No libc: links into the Melis module and the host tests alike. */
 #include "x6_catalog.h"
 #include "x6_rom_file.h"
+static uint32_t scan_status;
+uint32_t x6_catalog_status(void) {return scan_status;}
 
 static uint32_t copy_span(char *out, uint32_t capacity, const char *in, uint32_t length)
 {
@@ -50,6 +52,15 @@ static int32_t compare(const struct x6_game *a, const struct x6_game *b)
     for (uint32_t i = 0;; ++i) {
         if (a->id[i] != b->id[i]) return (unsigned char)a->id[i] < (unsigned char)b->id[i] ? -1 : 1;
         if (!a->id[i]) return 0;
+    }
+}
+
+void x6_catalog_sort(struct x6_game *out, uint32_t count)
+{
+    for (uint32_t i = 1; i < count; ++i) {
+        struct x6_game item = out[i];uint32_t at = i;
+        while (at && compare(&item, &out[at - 1]) < 0) {out[at] = out[at - 1];--at;}
+        out[at] = item;
     }
 }
 
@@ -148,6 +159,7 @@ static int32_t extra_file(const struct x6_directory_entry *e, void *context)
 uint32_t x6_catalog_scan(struct x6_game *out, uint32_t capacity, const char *rom_directory,
                          x6_directory_walker walk)
 {
+    scan_status = 0;
     struct scan s = {out, x6_catalog_build(out, capacity, rom_directory), capacity, 0};
     if (!out || !capacity || !walk) return s.count;
     const char *directories[] = {"F:/roms/mame", rom_directory};
@@ -155,13 +167,11 @@ uint32_t x6_catalog_scan(struct x6_game *out, uint32_t capacity, const char *rom
         if (!directories[i] || (i && x6_rom_equal(directories[0], directories[1]))) continue;
         s.directory = directories[i];uint32_t before = s.count;
         int32_t result = walk(s.directory, extra_file, &s);
+        if (result < -1) scan_status = 1;
         if (result < 0) s.count = before;
         if (result == -4) break;
     }
-    for (uint32_t i = 1; i < s.count; ++i) {
-        struct x6_game item = out[i];uint32_t at = i;
-        while (at && compare(&item, &out[at - 1]) < 0) {out[at] = out[at - 1];--at;}
-        out[at] = item;
-    }
+    x6_catalog_sort(out, s.count);
+    if (s.count == capacity) scan_status = 1;
     return s.count;
 }

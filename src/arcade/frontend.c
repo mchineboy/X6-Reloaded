@@ -478,6 +478,7 @@ static void open_browser(void)
 {
     x6_menu_init(&menu, browser.entries, browser.count, browser.selected);
     x6_menu_location(&menu, browser.location, browser.level != X6_BROWSER_ROOT);
+    if (browser.read_error) x6_menu_notice(&menu, "Library cache unreadable; reboot");
     menu_prev_buttons = buttons[0];
     mode = MODE_MENU;loading_shown = 0;x6_music_reset();
     x6_pacer_reset(&pacer);
@@ -542,7 +543,7 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
         const struct x6_host_services *svc;
         const uint8_t *src = (const uint8_t *)host->resource_path + 8;uint8_t *dst = (uint8_t *)&svc;
         for (uint32_t i = 0; i < sizeof svc; ++i) dst[i] = src[i];
-        if (svc && svc->version >= 1 && svc->version <= 5) host_services = svc;
+        if (svc && svc->version >= 1 && svc->version <= 6) host_services = svc;
         copy_path(resource_path, sizeof(resource_path), rom_directory, PATH_SIZE);
     } else if (host->resource_path[0]) {
         if (!copy_path(resource_path, sizeof(resource_path), host->resource_path, sizeof(host->resource_path))) {
@@ -555,8 +556,14 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
     uint32_t menu_entry = same_name(name, "x6-arcade.zip");
     game_count = x6_catalog_scan(games, X6_CATALOG_MAX, rom_directory,
         host_services && host_services->version >= 5 ? host_services->walk_directory : 0);
+    if (host_services && host_services->version >= 6 && host_services->resolve_title) {
+        for (uint32_t i = 0; i < game_count; ++i) host_services->resolve_title(&games[i], X6_LIBRARY_MAME);
+        x6_catalog_sort(games, game_count);
+    }
     uint32_t stock_count = 0;
-    if (menu_entry && host_services && host_services->version >= 4 && host_services->stock_count
+    if (menu_entry && host_services && host_services->version >= 6 && host_services->libraries && host_services->request_library_game) {
+        /* New hosts supply only the requested page; no 512-game preload. */
+    } else if (menu_entry && host_services && host_services->version >= 4 && host_services->stock_count
         && host_services->stock_metadata && host_services->request_stock_game) {
         stock_count = host_services->stock_count();
         if (stock_count > X6_CATALOG_MAX) stock_count = X6_CATALOG_MAX;
@@ -577,14 +584,23 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
     for (uint32_t i = 0; i < 5; ++i) buttons[i] = 0;
     if (menu_entry) {
         from_menu = 1;settings_load();
-        x6_browser_init(&browser, games, game_count, stock_games, stock_count);
-        if (stock_count && host_services && host_services->version >= 3 && host_services->restore_library
-            && host_services->restore_library() == 2) {
+        if (host_services && host_services->version >= 6 && host_services->libraries && host_services->request_library_game)
+            x6_browser_init_provider(&browser, games, game_count, host_services->libraries);
+        else x6_browser_init(&browser, games, game_count, stock_games, stock_count);
+        if (x6_catalog_status() || (host_services && host_services->version >= 6
+            && host_services->library_status && host_services->library_status()))
+            x6_browser_incomplete(&browser);
+        if (host_services && host_services->version >= 3 && host_services->restore_library
+            && host_services->restore_library() >= 2) {
             uint32_t index = host_services->version >= 4 && host_services->restore_stock_game
                 ? host_services->restore_stock_game() : 0;
-            x6_browser_focus(&browser, X6_LIBRARY_STOCK, index);
+            uint32_t lib = host_services->version >= 6 ? host_services->restore_library() - 1 : X6_LIBRARY_STOCK;
+            x6_browser_focus(&browser, lib, index);
         }
-        open_browser();return 0;
+        open_browser();
+        if (host_services && host_services->version >= 6 && host_services->library_status && host_services->library_status())
+            x6_menu_notice(&menu, "Library scan incomplete; check SD space");
+        return 0;
     }
     from_menu = 0;
     if (start_game(index)) {
@@ -706,9 +722,11 @@ static void frame_loading(uint32_t render)
         if (render && surface_for_frame(&s)) {x6_ui_draw_loading(&s, &browser.entries[menu.selected]);loading_shown = 1;}
         return;
     }
-    if (launch_library == X6_LIBRARY_STOCK) {
-        int32_t result = host_services->version >= 4
-            ? host_services->request_stock_game(launch_game) : host_services->request_stock();
+    if (launch_library != X6_LIBRARY_MAME) {
+        int32_t result = host_services->version >= 6 && host_services->request_library_game
+            ? host_services->request_library_game(launch_library, launch_game)
+            : launch_library != X6_LIBRARY_STOCK ? -1 : host_services->version >= 4
+                ? host_services->request_stock_game(launch_game) : host_services->request_stock();
         if (result == 0) mode = MODE_HANDOFF;
         else {open_browser();x6_menu_notice(&menu, "Original game is unavailable");}
         return;
