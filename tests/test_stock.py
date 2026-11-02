@@ -26,6 +26,9 @@ class StockImportTests(unittest.TestCase):
         self.fixture = patch.object(stock, 'FILES', self.expected)
         self.fixture.start()
         self.addCleanup(self.fixture.stop)
+        metadata = patch.object(stock.stock_metadata, 'extract', return_value='# ID\tTitle\n2020bb\tTest title\n')
+        metadata.start()
+        self.addCleanup(metadata.stop)
 
     def test_import_keeps_sources_and_saves_untouched(self):
         save = self.backup / 'game/mame/2020bb.fbasave'

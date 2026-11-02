@@ -144,6 +144,15 @@ def build(args):
     (staging / 'game/cps/samples').mkdir(parents=True)
     (staging / 'roms/mame/samples').mkdir(parents=True)
     (staging / 'roms/original').mkdir(parents=True)
+    for name in ('nes', 'snes', 'md', 'gb', 'gbc', 'gba'):
+        folder = staging / 'roms' / name
+        folder.mkdir(parents=True)
+        (folder / 'README.TXT').write_text(
+            'Copy compatible ' + name.upper() + ' ROM files here, safely eject and restart the X6.\n'
+            'The supplied original emulator is required under x6/stock/. Console playback needs device testing.\n'
+            'Use x6/titles.tsv for display-title overrides; do not rename ROMs or saves.\n')
+    (staging / 'res').mkdir(parents=True)
+    (staging / 'res/README.TXT').write_text('The original GBA emulator uses this folder for its cache files.\n')
     (staging / 'roms/mame/README.TXT').write_text(
         'Copy supported MAME 2000 / 0.37b5 game-name ZIPs here, then reboot.\n'
         'Samples go in the samples subfolder. Unsupported drivers need a core update.\n'
@@ -164,6 +173,12 @@ startx
 '''.replace('\n', '\r\n').encode('ascii')
     (staging / 'x6/boot.esh').write_bytes(script)
     stock_report = stock.stage(stock_backup, staging) if stock_backup else None
+    title_index = getattr(args, 'title_index', None)
+    if title_index:
+        content = Path(title_index).read_bytes()
+        if len(content) >= 524288 or len(content.splitlines()) > 8193:
+            raise ValueError('Title index exceeds runtime limits')
+        (staging / 'x6/titles.tsv').write_bytes(content)
     reports = []
     for game in config['games']:
         source = UPSTREAM / 'src/drivers' / locate_driver(UPSTREAM, game)
@@ -221,7 +236,8 @@ def main():
         parser.add_argument('--' + name, type=Path)
     parser.add_argument('--games')
     parser.add_argument('--stock-backup', type=Path,
-                        help='optional original-card backup for the FBA trial; none disables it')
+                        help='optional original-card backup for arcade/console libraries; none disables it')
+    parser.add_argument('--title-index', type=Path, help='optional private display-title TSV; ROM names stay unchanged')
     parser.add_argument('--cc', default='clang')
     parser.add_argument('--ld')
     args = parser.parse_args()

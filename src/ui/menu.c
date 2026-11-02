@@ -119,6 +119,8 @@ static const char *disabled_reason(uint8_t state)
     case X6_GAME_UNSUPPORTED: return "No driver in this MAME build";
     case X6_GAME_INVALID: return "Empty, unreadable or invalid ROM file";
     case X6_GAME_FORMAT: return "Unsupported file format or ROM name";
+    case X6_GAME_ENGINE: return "Required emulator module is missing";
+    case X6_GAME_CATALOG: return "Library incomplete; check SD space/limits";
     default: return "ROM file is missing";
     }
 }
@@ -210,7 +212,9 @@ static void draw_row(struct x6_surface *list, const struct x6_game *game, int32_
     } else if (game->available != X6_GAME_READY) {
         const char *tag = game->available == X6_GAME_UNSUPPORTED ? "UNSUPPORTED"
             : game->available == X6_GAME_INVALID ? "INVALID"
-            : game->available == X6_GAME_FORMAT ? "FORMAT" : "NO ROM";
+            : game->available == X6_GAME_FORMAT ? "FORMAT"
+            : game->available == X6_GAME_ENGINE ? "NO ENGINE"
+            : game->available == X6_GAME_CATALOG ? "INCOMPLETE" : "NO ROM";
         tag_w = x6_text_width(tag, 1) + 10;
         x6_gfx_round_rect(list, right - tag_w, y + 9, tag_w, 13, 4, 0x26808080u);
         x6_text_draw(list, right - tag_w + 5, y + 12, tag, 1, TEXT_DISABLED);
@@ -276,11 +280,11 @@ static void draw_footer(struct x6_surface *s, const struct x6_menu *m)
     if (m->count || m->can_back) keycap(s, &x, y, "SELECT", "Settings");
 }
 
-static void draw_empty(struct x6_surface *s)
+static void draw_empty(struct x6_surface *s, const struct x6_menu *m)
 {
     static const char title[] = "No games yet";
-    static const char line1[] = "Add supported ZIPs to roms/mame";
-    static const char line2[] = "Then reboot to refresh the library";
+    const char *line1 = m->notice_frames ? m->notice : "Add supported ZIPs to roms/mame";
+    const char *line2 = "Then reboot to refresh the library";
     x6_text_draw(s, (X6_UI_WIDTH - x6_text_width(title, 2)) / 2, 92, title, 2, TEXT);
     x6_text_draw(s, (X6_UI_WIDTH - x6_text_width(line1, 1)) / 2, 122, line1, 1, TEXT_DIM);
     x6_text_draw(s, (X6_UI_WIDTH - x6_text_width(line2, 1)) / 2, 134, line2, 1, TEXT_DIM);
@@ -290,7 +294,7 @@ void x6_menu_draw(const struct x6_menu *m, struct x6_surface *s)
 {
     draw_background(s);
     draw_header(s, m);
-    if (!m->count) {draw_empty(s);draw_footer(s, m);return;}
+    if (!m->count) {draw_empty(s, m);draw_footer(s, m);return;}
     struct x6_surface list = {s->pixels + LIST_TOP * s->pitch, s->width, VISIBLE_ROWS * ROW_H, s->pitch};
     int32_t scroll = m->scroll_q8 / 256;
     int32_t shake = m->nudge_frames ? ((m->nudge_frames & 2u) ? 3 : -3) : 0;

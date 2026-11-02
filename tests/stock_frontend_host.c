@@ -83,6 +83,37 @@ static int32_t walk(const char *path, x6_directory_visitor visitor, void *contex
     } else assert(!strcmp(path, "F:/game/cps"));
     return 0;
 }
+static uint32_t requested_library, page_failure;
+static uint32_t console_stats(uint32_t lib, uint32_t buckets[5])
+{
+    for (uint32_t i = 0; i < 5; ++i) buckets[i] = 0;
+    if (lib != X6_LIBRARY_NES) return 0;
+    buckets[2] = 6000;return 6000;
+}
+static int32_t console_page(uint32_t lib, uint32_t bucket, uint32_t offset,
+    struct x6_game *out, uint32_t *indices, uint32_t capacity)
+{
+    assert(lib == X6_LIBRARY_NES && bucket == 2 && capacity == X6_LIBRARY_PAGE);
+    if (page_failure) return -1;
+    uint32_t n = 0;
+    while (offset + n < 6000 && n < capacity) {
+        out[n] = (struct x6_game){.available = X6_GAME_READY};indices[n] = offset + n;
+        snprintf(out[n].title, sizeof out[n].title, "Game %04u", offset + n);
+        snprintf(out[n].path, sizeof out[n].path, "F:/game/nes/game%u.nes", offset + n);++n;
+    }
+    return (int32_t)n;
+}
+static int32_t console_position(uint32_t lib, uint32_t index, uint32_t *bucket, uint32_t *offset)
+{
+    assert(lib == X6_LIBRARY_NES && index < 6000);*bucket = 2;*offset = index;return 0;
+}
+static const struct x6_library_provider consoles = {console_stats, console_page, console_position};
+static uint32_t restore_nes(void) {return X6_LIBRARY_NES + 1;}
+static uint32_t restore_last(void) {return 5999;}
+static int32_t request_console(uint32_t lib, uint32_t index)
+{
+    assert(inside_frame);requested_library = lib;requested_stock = index;++requests;return 0;
+}
 static const struct x6_host_services services = {
     .version = 2, .set_brightness = brightness, .set_idle = idle,
     .stock_available = stock_available, .request_stock = request_stock
@@ -192,6 +223,22 @@ int main(void)
     stock_disabled = 1;dynamic.restore_library = restore_library;
     load_menu(&dynamic);frame(0);frame(X6_BTN_A);frame(0);frame(X6_BTN_START);frame(0);
     assert(requests == old_requests && core_loads == old_loads + 1);
+    x6_arcade_interface.unload();
+    /* A console restored beyond row 512 queues the correct library and source
+       index, including after Settings and through the extra page-folder level. */
+    dynamic.version = 6;dynamic.libraries = &consoles;dynamic.request_library_game = request_console;
+    dynamic.restore_library = restore_nes;dynamic.restore_stock_game = restore_last;
+    old_requests = requests;old_loads = core_loads;
+    load_menu(&dynamic);frame(0);frame(X6_BTN_SELECT);frame(0);frame(X6_BTN_B);frame(0);
+    frame(X6_BTN_A);frame(0);
+    assert(requests == old_requests + 1 && requested_library == X6_LIBRARY_NES && requested_stock == 5999 && core_loads == old_loads);
+    x6_arcade_interface.unload();
+    load_menu(&dynamic);frame(0);frame(X6_BTN_B);frame(0); /* Page folders */
+    frame(X6_BTN_A);frame(0);frame(X6_BTN_A);frame(0);
+    assert(requests == old_requests + 2 && requested_stock == 5999);
+    x6_arcade_interface.unload();
+    page_failure = 1;load_menu(&dynamic);frame(0);frame(X6_BTN_A);frame(0);
+    assert(requests == old_requests + 2);frame(X6_BTN_B);frame(0); /* Back remains usable. */
     x6_arcade_interface.unload();
     puts("PASS: real frontend folder selection, held buttons, deferred handoff, request failure, legacy hosts, stock-folder restore, settings and filtered MAME game return");
     return 0;

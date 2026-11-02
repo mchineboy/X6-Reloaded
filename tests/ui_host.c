@@ -143,6 +143,25 @@ int main(int argc, char **argv)
     x6_menu_init(&m, folders, 2, 0);x6_menu_location(&m, "Library", 0);settle(&m, 1);
     assert(tap(&m, X6_BTN_A) == X6_MENU_LAUNCH && tap(&m, X6_BTN_B) == X6_MENU_NONE);
     x6_menu_draw(&m, &surface);guard_check();save(out, "library-folders");
+    struct x6_game libraries[8] = {
+        {.title = "MAME Arcade", .year = "43", .available = 1, .folder = 1},
+        {.title = "Original Arcade", .year = "56", .available = 1, .folder = 1},
+        {.title = "NES / Famicom", .year = "3524", .available = 1, .folder = 1},
+        {.title = "Super Nintendo", .year = "200", .available = 1, .folder = 1},
+        {.title = "Mega Drive / Genesis", .year = "370", .available = 1, .folder = 1},
+        {.title = "Game Boy", .year = "185", .available = 1, .folder = 1},
+        {.title = "Game Boy Color", .year = "485", .available = 1, .folder = 1},
+        {.title = "Game Boy Advance", .year = "344", .available = 1, .folder = 1}
+    };
+    x6_menu_init(&m, libraries, 8, 2);x6_menu_location(&m, "Library", 0);settle(&m, 1);
+    x6_menu_draw(&m, &surface);guard_check();save(out, "console-libraries");
+    struct x6_game pages[3] = {
+        {.title = "Games 1-128", .year = "128", .maker = "128 games", .available = 1, .folder = 1},
+        {.title = "Games 129-256", .year = "128", .maker = "128 games", .available = 1, .folder = 1},
+        {.title = "Games 257-310", .year = "54", .maker = "54 games", .available = 1, .folder = 1}
+    };
+    x6_menu_init(&m, pages, 3, 1);x6_menu_location(&m, "NES / Famicom / A-F", 1);settle(&m, 1);
+    x6_menu_draw(&m, &surface);guard_check();save(out, "console-pages");
     struct x6_game groups[5] = {
         {.title = "0-9", .maker = "2 games", .year = "2", .available = 1, .folder = 1},
         {.title = "A-F", .maker = "15 games", .year = "15", .available = 1, .folder = 1},

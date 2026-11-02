@@ -21,14 +21,15 @@ if sys.argv[1] == 'help':
           'make preview   Render original UI previews\n'
           'make check     Run source and local tests\n\n'
           'Optional: GAMES=all, GAMES=dkong,galaga, or GAMES=none (add ROMs later); SAMPLES=/path/to/samples;\n'
-          'STOCK_BACKUP=/path/to/stock-card-backup enables the experimental original-FBA trial;\n'
+          'STOCK_BACKUP=/path/to/stock-card-backup imports original modules and libraries privately;\n'
+          'TITLE_INDEX=/path/to/titles.tsv adds display titles without renaming ROMs;\n'
           'CORE_SOURCE=/path/to/clean/pinned/mame2000; CLANG=clang; LD_LLD=/path/to/ld.lld\n'
           'Configuration is saved locally. No ROM or firmware downloads.')
 else:
     command = [sys.executable, str(Path(__file__).with_name('reloaded.py')), sys.argv[1]]
     for var, flag in [('ROMS', 'roms'), ('FIRMWARE', 'firmware'), ('TOOLCHAIN', 'toolchain'),
                       ('SAMPLES', 'samples'), ('GAMES', 'games'), ('CORE_SOURCE', 'core-source'),
-                      ('CLANG', 'cc'), ('LD_LLD', 'ld')]:
+                      ('CLANG', 'cc'), ('LD_LLD', 'ld'), ('TITLE_INDEX', 'title-index')]:
         if os.environ.get(var):
             command += ['--' + flag, os.environ[var]]
     if os.environ.get('STOCK_BACKUP'):

@@ -38,7 +38,7 @@ explicitly confirmed step. These commands never program or erase internal flash.
 | Input | What it needs to be |
 | --- | --- |
 | Handheld | The tested X6/F1C200S board with stock `V1.241017` firmware. An X6-shaped case is not a compatibility guarantee. |
-| SD card | A spare card, at least 1 GB. The image writer **erases that card**. |
+| SD card | A spare card large enough for the generated image: at least 1 GB for a small arcade selection; 8 GB or more for the inspected full stock collection. The image writer **erases that card**. |
 | ROMs | Your own self-contained game-name ZIPs. Contents must match the selected MAME 2000 / **0.37b5** definitions. |
 | Firmware backup | Your own 8 MiB internal-flash backup from a compatible unit. Boot0, boot1 and ramdisk hashes must match the supported baseline. |
 | Build tools | Python **3.11+**, Git, Make, Clang, LLVM `ld.lld`, and an extracted ARM GNU `arm-none-eabi` toolchain with newlib. The reference toolchain is **13.3.rel1**. |
@@ -163,13 +163,21 @@ live beside the ROMs as `.x6d` files. A fresh full SD image replaces those saved
 settings along with the rest of the card. Back them up before rebuilding a card
 you have already been using.
 
-The library opens with **MAME Arcade** and, when a stock backup is included,
-**Original Arcade** folders. A library with more than 40 games automatically
+The library opens with **MAME Arcade** and discovered stock libraries:
+**Original Arcade, NES / Famicom, Super Nintendo, Mega Drive / Genesis,
+Game Boy, Game Boy Color and Game Boy Advance**. A library with more than 40 games automatically
 gets alphabet folders: **0–9, A–F, G–L, M–R, S–Z**. Empty groups are hidden;
 punctuation and non-ASCII initial characters go under 0–9. Counts show how many
 games each folder contains. Returning from a game restores its folder and cursor;
 opening Settings also preserves your position. These are menu groups; no ROM
-files are moved.
+files are moved. Groups larger than 128 entries contain numbered game pages;
+B returns through the page, alphabet and library folders. Returning from a
+console restores its library, page and selected game. The host holds only sort
+keys in memory and reads full metadata a page at a time from `x6/library.cache`.
+The cache is rebuilt automatically at startup; a progress/count display stays
+visible. The total stock catalog is bounded at 8,192 entries and each source
+directory at 4,096 directory entries. An incomplete scan shows a warning instead
+of claiming a complete library. Saves, instructions and hidden files are excluded.
 
 ## Add games without rebuilding
 
@@ -179,6 +187,10 @@ files are moved.
    | --- | --- | --- |
    | MAME Arcade | `roms/mame/` | Supported game-name ZIPs matching MAME 2000 / 0.37b5 |
    | Original Arcade | `roms/original/` | Compatible stock `.fba` packs or original-FBA game-name ZIPs |
+   | NES / Famicom | `roms/nes/` | `.nes` |
+   | Super Nintendo | `roms/snes/` | `.sfc`, `.smc` |
+   | Mega Drive / Genesis | `roms/md/` | `.bin`, `.md`, `.gen`, `.smd` |
+   | Game Boy / Color / Advance | `roms/gb/`, `roms/gbc/`, `roms/gba/` | `.gb`, `.gbc`, `.gba`, respectively |
 
 2. Put any required MAME sample ZIP beside those ROMs under `roms/mame/samples/`.
 3. Safely eject the card, insert it into the powered-off X6 and reboot.
@@ -208,31 +220,76 @@ Original Arcade needs your original module at `x6/stock/fba.mod`; it cannot run
 stock games without that separate emulator. Original-FBA ZIPs are not assumed
 interchangeable with MAME 0.37b5 ZIPs.
 
-## Original Arcade support
+## Original arcade and console support
 
 The initial stock-emulator trial used **2020 Super Baseball**. To include the
-verified original FBA module and initial 2020 game from your own stock-card backup:
+verified original modules and games from your own stock-card backup:
 
 ```sh
 make image STOCK_BACKUP="/path/to/your/stock-card-backup"
 ```
 
-This is optional. The importer accepts only the exact inspected `apps/mod/fba.mod`
-and `game/mame/2020bb.fba` checksums. It copies them into `x6/stock/` in the private
-image; the backup and original saves stay untouched. It does not convert `.fba`
-files into MAME ZIPs. Passing `STOCK_BACKUP` to `make menuconfig` saves the option
+This is optional. The importer checks the exact inspected `fba.mod`, `fc.mod`,
+`sfc.mod`, `md.mod`, `gbc.mod` and `gba.mod` hashes before copying the supplied
+modules into `x6/stock/`. Console modules may be absent; their games then show
+`NO ENGINE` and cannot launch. The 2020 seed remains checksum-locked. Other stock
+ROMs are copied under their existing `game/` folders and filenames; original
+saves are not imported. The original GBA module's `res/` cache directory is also
+created. Stock ROMs, modules, metadata and BIOS-derived bytes remain private
+image outputs, never repository assets. The backup is read-only. It does not
+convert `.fba` files into MAME ZIPs. Passing `STOCK_BACKUP` to `make menuconfig` saves the option
 locally; use `STOCK_BACKUP=none` to disable it.
 
 In the stock game, **Menu** opens Resume / Back to Reloaded. The host unloads one
 emulator before loading the other because both use the same memory address.
 Reloaded's per-game difficulty and rapid-fire settings apply to MAME games only.
 
-That importer seeds the image with the known 2020 game; it does not limit runtime
-discovery to that game. Later `.fba`/ZIP additions use their discovered filenames.
+Legacy console locations also work: `game/fc` and `game/nes`; `game/sfc` and
+`game/smc`; `game/md` and `game/smd`; and `game/gb`, `game/gbc`, `game/gba`.
+Recognized cartridge extensions route misplaced files to the correct console
+library while retaining their physical paths. Two physical copies are listed separately; they can have different
+saves or patches. Console archives are not assumed equivalent to raw cartridge
+files. Add a compatible ROM, safely eject and reboot to rebuild the catalog.
+
+### Readable titles without renaming files
+
+The builder extracts an arcade ID/title/year/maker table from your original FBA
+module into `x6/stock/arcade-titles.tsv`. `.fba` headers supply the ID, even when
+the filename is misleading. SNES, Mega Drive, GB/GBC and GBA use readable internal
+cartridge titles when present. These can still be abbreviated. NES uses a cleaned
+filename unless a title index is supplied; the normal iNES header has no title.
+
+`x6/titles.tsv` optionally overrides display names. Each line contains the
+relative SD path, a TAB, and the display title. For example:
+
+```text
+game/nes/1114 ADVISL3.NES	Adventure Island 3 (USA)
+```
+
+Paths are case-insensitive and accept either slash style. Overrides never change
+launch paths, filenames or save locations. To identify NES files automatically,
+supply your own compatible DAT containing size, CRC32 and SHA1 records:
+
+```sh
+python3 tools/title_index.py --rom-root /path/to/stock-backup \
+  --dat /path/to/nes.dat --output local/nes-titles.tsv
+make image STOCK_BACKUP=/path/to/stock-backup TITLE_INDEX=local/nes-titles.tsv
+```
+
+The tool matches complete files or iNES cartridge payloads and skips ambiguous
+or modified ROMs. It downloads no games or databases. Unmatched files retain
+their filename fallback. The TSV supports up to 8,192 rows and 512 KiB; regenerate
+or edit it after replacing ROMs. An oversized file causes a visible scan warning.
 
 **Status, November 1, 2026:** the user reports that 2020 Super Baseball
 “works perfectly” on the preceding trial. Native tests find 56 valid packed games
-in the local stock backup. The new directory syscalls, additional games and
+in the local stock backup. A native read-only backup audit discovers 5,164 stock
+entries across seven libraries, including three misplaced files routed to their
+correct consoles; a synthetic 6,003-entry NES test checks paging, source-index handoff, return and
+closed handles. These are discovery/control-flow tests, not emulator execution.
+Console modules share statically inspected lifecycle/interface layouts; their
+playback, controls, sound, saves and return still need handheld acceptance.
+The new directory syscalls, additional games and
 automatic discovery still require handheld validation. Enumeration is not a
 claim that every listed game runs correctly or fits the board's performance.
 

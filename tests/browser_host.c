@@ -84,6 +84,11 @@ int main(void)
     fill(512);x6_browser_init(&browser, games, 512, stock, 1);
     x6_browser_focus(&browser, X6_LIBRARY_MAME, 511);
     assert(x6_browser_choose(&browser, browser.selected, &index) == X6_BROWSER_PLAY && index == 511);
+    x6_browser_init(&browser, 0, 0, 0, 0);x6_browser_incomplete(&browser);
+    assert(browser.count == 2 && browser.entries[1].available == X6_GAME_CATALOG);
+    assert(x6_browser_choose(&browser, 1, &index) == X6_BROWSER_NONE);
+    assert(x6_browser_choose(&browser, 0, &index) == X6_BROWSER_ENTER);
+    assert(x6_browser_back(&browser, 0) && browser.count == 2);
     puts("PASS: 400 games reachable exactly once, folder/back/cursor behavior, driver-index mapping, sparse/empty groups, missing ROMs and 512-entry capacity");
     return 0;
 }

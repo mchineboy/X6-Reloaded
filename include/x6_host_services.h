@@ -2,6 +2,7 @@
 #define X6_HOST_SERVICES_H
 #include <stdint.h>
 #include "x6_directory.h"
+#include "x6_library.h"
 struct x6_game;
 
 /* X6HOST1 resource_path extension. Versions 2/3 preserve the older prefixes.
@@ -18,5 +19,9 @@ struct x6_host_services {
     int32_t (*request_stock_game)(uint32_t index);
     uint32_t (*restore_stock_game)(void);
     x6_directory_walker walk_directory;               /* version >= 5; read-only */
+    const struct x6_library_provider *libraries;       /* version >= 6; paged */
+    int32_t (*request_library_game)(uint32_t library, uint32_t index);
+    uint32_t (*library_status)(void);                 /* nonzero: incomplete scan */
+    void (*resolve_title)(struct x6_game *, uint32_t library);
 };
 #endif

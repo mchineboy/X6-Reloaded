@@ -23,7 +23,7 @@ def main():
     subprocess.run(['clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
                     '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                     '-I' + str(ROOT / 'include'), str(ROOT / 'src/ui/browser.c'),
-                    str(ROOT / 'tests/browser_host.c'), '-o', str(browser)], check=True)
+                    str(ROOT / 'src/ui/library.c'), str(ROOT / 'tests/browser_host.c'), '-o', str(browser)], check=True)
     subprocess.run([str(browser)], check=True)
     discovery = out / 'discovery-test'
     subprocess.run(['clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
@@ -45,7 +45,7 @@ def main():
         print('SKIP frontend stock tests: run make deps to supply the pinned core headers')
         return
     binary = out / 'frontend-test'
-    sources = ['src/arcade/frontend.c', 'src/arcade/catalog.c', 'src/arcade/timing.c', 'src/ui/browser.c',
+    sources = ['src/arcade/frontend.c', 'src/arcade/catalog.c', 'src/arcade/timing.c', 'src/ui/browser.c', 'src/ui/library.c',
                'src/arcade/monitor.c', 'src/arcade/music.c', 'src/ui/gfx.c', 'src/ui/menu.c',
                'src/ui/font_data.c', 'tests/stock_frontend_host.c']
     subprocess.run(['clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
