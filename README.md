@@ -175,7 +175,13 @@ B returns through the page, alphabet and library folders. Returning from a
 console restores its library, page and selected game. The host holds only sort
 keys in memory and reads full metadata a page at a time from `x6/LIBRARY.IDX`.
 The 8.3 cache filename and canonical backslash paths are used at the Melis file
-boundary. The cache is rebuilt automatically at startup. A dedicated progress
+boundary. Normal boots validate and reuse the saved index without enumerating
+stock ROM folders or reopening their ROMs. The first boot after this update scans
+once; missing, incompatible, incomplete or corrupt indexes rebuild automatically.
+Changed emulator-module availability also triggers a rebuild. After adding,
+removing or renaming ROMs, or changing title overrides, press **Select**, choose
+**Rescan library** in Settings and press **A**. The rescan returns to the library
+menu and saves the result for subsequent boots. A dedicated progress
 screen shows the current phase/system, files checked, games found and a moving
 activity indicator; no percentage is invented while the directory total is
 unknown. Title loading, scanning, saving, sorting and opening the menu have
@@ -209,9 +215,11 @@ After a failed boot, power off and mount the card to inspect `x6/SCAN.LOG`.
 
 2. Put any required MAME sample ZIP beside those ROMs under `roms/mame/samples/`.
 3. Safely eject the card, insert it into the powered-off X6 and reboot.
+4. Press **Select → Rescan library → A** to refresh the saved stock/console list.
 
-The menu discovers installed games at startup and builds the alphabet folders
-automatically. ROM bytes live on the card; they are not embedded in the binary.
+The first scan and explicit rescans discover stock/console games and build the
+alphabet folders automatically. MAME's smaller supported-game list is still
+checked when its menu loads. ROM bytes live on the card; they are not embedded in the binary.
 MAME checks filenames for its compiled supported-driver pool and hides missing
 ROMs. Extra ROM files remain visible in grey with an `UNSUPPORTED`, `INVALID` or
 `FORMAT` badge. Selecting one shows the reason; neither A nor START launches it.

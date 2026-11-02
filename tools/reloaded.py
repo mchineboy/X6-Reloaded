@@ -149,6 +149,7 @@ def build(args):
         folder.mkdir(parents=True)
         (folder / 'README.TXT').write_text(
             'Copy compatible ' + name.upper() + ' ROM files here, safely eject and restart the X6.\n'
+            'Press Select, choose Rescan library in Settings, then press A to refresh the saved list.\n'
             'The supplied original emulator is required under x6/stock/. Console playback needs device testing.\n'
             'Use x6/titles.tsv for display-title overrides; do not rename ROMs or saves.\n')
     (staging / 'res').mkdir(parents=True)
@@ -160,6 +161,7 @@ def build(args):
         'Supported short names: ' + ', '.join(manifest['drivers']) + '\n')
     (staging / 'roms/original/README.TXT').write_text(
         'Copy compatible original-X6 .fba packs or original-FBA game-name ZIPs here, then reboot.\n'
+        'Press Select, choose Rescan library in Settings, then press A to refresh the saved list.\n'
         'Requires your original FBA module under x6/stock/fba.mod.\n'
         'Legacy game/mame packed games and x6/stock trial games are also discovered.\n'
         'Invalid files and unsupported formats appear grey and cannot launch.\n'

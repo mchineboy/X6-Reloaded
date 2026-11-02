@@ -1,6 +1,7 @@
 /* Core and filesystem doubles only; never linked into firmware. The real
  * frontend/menu/music code handles every selection and handoff below. */
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -114,6 +115,9 @@ static int32_t request_console(uint32_t lib, uint32_t index)
 {
     assert(inside_frame);requested_library = lib;requested_stock = index;++requests;return 0;
 }
+static uint32_t rescans;
+static int32_t rescan_result;
+static int32_t request_rescan(void) {assert(inside_frame);++rescans;return rescan_result;}
 static const struct x6_host_services services = {
     .version = 2, .set_brightness = brightness, .set_idle = idle,
     .stock_available = stock_available, .request_stock = request_stock
@@ -240,6 +244,25 @@ int main(void)
     page_failure = 1;load_menu(&dynamic);frame(0);frame(X6_BTN_A);frame(0);
     assert(requests == old_requests + 2);frame(X6_BTN_B);frame(0); /* Back remains usable. */
     x6_arcade_interface.unload();
+    /* Rescan is an explicit A action; holding it queues only one host request.
+       Older service tables keep five settings and never read the v9 pointer. */
+    page_failure = 0;dynamic.version = 9;dynamic.request_rescan = request_rescan;
+    load_menu(&dynamic);frame(0);frame(X6_BTN_SELECT);frame(0);frame(X6_BTN_UP);frame(0);
+    frame(X6_BTN_LEFT);frame(0);frame(X6_BTN_RIGHT);frame(0);assert(!rescans);
+    frame(X6_BTN_A);frame(X6_BTN_A);frame(0);frame(X6_BTN_A);assert(rescans == 1);
+    x6_arcade_interface.unload();
+    rescan_result = -1;
+    load_menu(&dynamic);frame(0);frame(X6_BTN_SELECT);frame(0);frame(X6_BTN_UP);frame(0);
+    frame(X6_BTN_A);frame(0);assert(rescans == 2);
+    old_requests = requests;frame(X6_BTN_A);frame(0);
+    assert(requests == old_requests + 1 && requested_library == X6_LIBRARY_NES && requested_stock == 5999);
+    x6_arcade_interface.unload();
+    size_t old_size = offsetof(struct x6_host_services, request_rescan);
+    struct x6_host_services *v8 = malloc(old_size);assert(v8);
+    dynamic.version = 8;memcpy(v8, &dynamic, old_size);
+    load_menu(v8);frame(0);frame(X6_BTN_SELECT);frame(0);frame(X6_BTN_UP);frame(0);frame(X6_BTN_A);frame(0);
+    assert(rescans == 2);x6_arcade_interface.unload();free(v8);
     puts("PASS: real frontend folder selection, held buttons, deferred handoff, request failure, legacy hosts, stock-folder restore, settings and filtered MAME game return");
+    puts("PASS: explicit rescan action queues once, ignores Left/Right, preserves browsing after rejection and guards older host prefixes");
     return 0;
 }

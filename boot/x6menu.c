@@ -49,6 +49,7 @@ static uint32_t restore_library;
 static struct x6_game original_game;
 static uint32_t original_count, original_selected, legacy_selected;
 static uint32_t original_library = X6_LIBRARY_STOCK, library_status;
+static uint32_t rescan_requested;
 static uint32_t stock_w, stock_h, stock_pitch, stock_video_error;
 #define STOCK_PAGES ((X6_STOCK_MAX_SIDE * X6_STOCK_MAX_SIDE * 4u) / 1024u)
 
@@ -70,6 +71,7 @@ void *x6_fs_open_raw(const char *path, const char *mode) {return (void *)fopen_(
 uint32_t x6_fs_read(void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2604, data, size, count, handle);}
 uint32_t x6_fs_write(const void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2605, data, size, count, handle);}
 int32_t x6_fs_seek(void *handle, int32_t offset, int32_t origin) {return (int32_t)SVC(0x2606, handle, offset, origin, 0);}
+int32_t x6_fs_tell(void *handle) {return (int32_t)SVC(0x2607, handle, 0, 0, 0);}
 int32_t x6_fs_close(void *handle) {return (int32_t)fclose_(handle);}
 
 static void say(const char *k, uint32_t v) { uputs("[X6MENU] "); uputs(k); uputs("="); uhex(v); uputs("\r\n"); }
@@ -256,10 +258,16 @@ static int32_t svc_request_stock_game(uint32_t index)
 }
 static uint32_t svc_restore_stock_game(void) {return original_selected;}
 static uint32_t svc_library_status(void) {return library_status;}
+static int32_t svc_request_rescan(void)
+{
+    if (stock_active || stock_requested || rescan_requested) return -1;
+    rescan_requested = 1;return 0;
+}
 static const struct x6_host_services host_services = {
-    8, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
+    9, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
     svc_stock_count, svc_stock_metadata, svc_request_stock_game, svc_restore_stock_game, x6_directory_walk,
-    &x6_libraries_provider, svc_request_library_game, svc_library_status, x6_titles_apply, x6_libraries_scan_info
+    &x6_libraries_provider, svc_request_library_game, svc_library_status, x6_titles_apply, x6_libraries_scan_info,
+    svc_request_rescan
 };
 
 static int32_t install_module(const char *path)
@@ -335,6 +343,26 @@ static void catalog_progress(const struct x6_scan_info *scan)
     struct x6_surface surface = {(uint32_t *)gbuf, GW, GH, GW};
     x6_ui_draw_scan(&surface, scan);present();
 }
+static void prepare_library(uint32_t rescan)
+{
+    if (rescan) x6_libraries_build();else x6_libraries_start();
+    library_status = x6_libraries_scan_info()->errors;
+    uint32_t buckets[X6_LIBRARY_BUCKETS];
+    original_count = x6_libraries_provider.stats(X6_LIBRARY_STOCK, buckets);
+    legacy_selected = original_count;
+    for (uint32_t i = 0; i < original_count; ++i) {
+        struct x6_game g;
+        if (x6_libraries_game(X6_LIBRARY_STOCK, i, &g) == 0 && g.id[0] == '2' && g.id[1] == '0'
+            && g.id[2] == '2' && g.id[3] == '0' && g.id[4] == 'b' && g.id[5] == 'b' && !g.id[6]
+            && g.available == X6_GAME_READY) {legacy_selected = i;break;}
+    }
+    stock_ready = legacy_selected < original_count;
+    say("original_games", original_count);
+    if (!library_status) {
+        struct x6_scan_info opening = *x6_libraries_scan_info();opening.phase = X6_SCAN_MENU;
+        catalog_progress(&opening);
+    }
+}
 
 int main(void *arg)
 {
@@ -392,22 +420,7 @@ int main(void *arg)
     say("keys", kh);
 
     x6_libraries_progress(catalog_progress);
-    x6_libraries_build();library_status = x6_libraries_scan_info()->errors;
-    uint32_t buckets[X6_LIBRARY_BUCKETS];
-    original_count = x6_libraries_provider.stats(X6_LIBRARY_STOCK, buckets);
-    legacy_selected = original_count;
-    for (uint32_t i = 0; i < original_count; ++i) {
-        struct x6_game g;
-        if (x6_libraries_game(X6_LIBRARY_STOCK, i, &g) == 0 && g.id[0] == '2' && g.id[1] == '0'
-            && g.id[2] == '2' && g.id[3] == '0' && g.id[4] == 'b' && g.id[5] == 'b' && !g.id[6]
-            && g.available == X6_GAME_READY) {legacy_selected = i;break;}
-    }
-    stock_ready = legacy_selected < original_count;
-    say("original_games", original_count);
-    if (!library_status) {
-        struct x6_scan_info opening = *x6_libraries_scan_info();opening.phase = X6_SCAN_MENU;
-        catalog_progress(&opening);
-    }
+    prepare_library(0);
     int32_t result = start_emulator(0);
     uint32_t paused = result != 0, failed = paused, fatal = paused;
     uint32_t frames = 0, skipleft = 0, lastcalls = 0, previous = 0;
@@ -481,6 +494,18 @@ int main(void *arg)
         }
         lastcalls = acalls;
         int32_t frame_result = e->frame(render);
+        if (rescan_requested) {
+            /* Module frame has returned: unload it before rebuilding host data. */
+            rescan_requested = 0;result = x6_session_stop(&session) ? -2 : 0;
+            if (!result) {
+                acount = 0;if (afp) fioctrl_(afp, 42, 0, 0);
+                restore_library = 0;prepare_library(1);result = start_emulator(0);
+            }
+            paused = failed = result != 0;fatal = result == -2;
+            pause_selected = 0;pause_dim = 1;previous = 0;
+            skipleft = 0;lastcalls = 0;x6_pacer_reset(&stock_pacer);
+            continue;
+        }
         if (stock_requested) {
             /* We are back in host code. No module callback is on the stack. */
             result = start_emulator(1);

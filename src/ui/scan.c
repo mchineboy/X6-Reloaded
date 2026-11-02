@@ -24,6 +24,7 @@ void x6_ui_draw_scan(struct x6_surface *s, const struct x6_scan_info *p)
     case X6_SCAN_SORTING: phase = "Sorting game titles";break;
     case X6_SCAN_READY: phase = "Library ready";break;
     case X6_SCAN_MENU: phase = "Opening game menu";break;
+    case X6_SCAN_CACHED: phase = "Loading saved library";break;
     case X6_SCAN_FAILED: phase = "Library scan stopped";break;
     default: break;
     }

@@ -9,11 +9,14 @@
 #include "x6_titles.h"
 extern const char *x6_test_root, *x6_test_output;
 extern uint32_t x6_test_opens, x6_test_closes;
+extern uint32_t x6_test_directory_attempts, x6_test_rom_opens;
 extern uint32_t x6_test_file_opens, x6_test_file_closes, x6_test_fail_write;
 extern uint32_t x6_test_fail_cache_open;
 extern uint32_t x6_test_fail_log_open, x6_test_fail_log_write, x6_test_fail_cache_close;
 extern uint32_t x6_test_fail_title_read;
 extern uint32_t x6_test_fail_log_close;
+extern uint32_t x6_test_fail_cache_read, x6_test_fail_index_write, x6_test_fail_footer_write;
+extern uint32_t x6_test_cache_writes;
 static char log_text[65537];
 static void read_log(void)
 {
@@ -24,7 +27,7 @@ static void read_log(void)
 static uint32_t observed_phases, progress_calls, saw_running_count;
 static void progress(const struct x6_scan_info *p)
 {
-    assert(p->phase <= X6_SCAN_MENU && p->indexed <= 8192);
+    assert(p->phase <= X6_SCAN_CACHED && p->indexed <= 8192);
     observed_phases |= 1u << p->phase;++progress_calls;
     if (p->phase == X6_SCAN_SCANNING && p->checked && p->indexed) saw_running_count = 1;
     if (p->phase == X6_SCAN_READY) assert(!p->errors);
@@ -32,6 +35,33 @@ static void progress(const struct x6_scan_info *p)
 static struct x6_browser browser;
 static struct x6_game page[X6_LIBRARY_PAGE];
 static uint32_t indices[X6_LIBRARY_PAGE], seen[8192];
+static void damage_cache(long offset, int origin)
+{
+    char path[2048];snprintf(path, sizeof path, "%s/x6/LIBRARY.IDX", x6_test_output);
+    FILE *f = fopen(path, "r+b");assert(f);assert(fseek(f, offset, origin) == 0);
+    int c = fgetc(f);assert(c != EOF);assert(fseek(f, offset, origin) == 0);
+    assert(fputc(c ^ 0x80, f) != EOF);assert(fclose(f) == 0);
+}
+static void check_saved_reload(const uint32_t *counts)
+{
+    struct x6_game last[X6_LIBRARY_COUNT];
+    for (uint32_t lib = 1; lib < X6_LIBRARY_COUNT; ++lib)
+        if (counts[lib]) assert(x6_libraries_game(lib, counts[lib] - 1, &last[lib]) == 0);
+    uint32_t directories = x6_test_directory_attempts, roms = x6_test_rom_opens, writes = x6_test_cache_writes;
+    assert(x6_libraries_start() == 0 && x6_libraries_scan_info()->cache_hit);
+    assert(x6_libraries_scan_info()->checked == 0);
+    assert(x6_test_directory_attempts == directories && x6_test_rom_opens == roms);
+    assert(x6_test_cache_writes == writes);
+    for (uint32_t lib = 1; lib < X6_LIBRARY_COUNT; ++lib) {
+        uint32_t buckets[5];struct x6_game g;
+        assert(x6_libraries_provider.stats(lib, buckets) == counts[lib]);
+        if (counts[lib]) {
+            assert(x6_libraries_game(lib, counts[lib] - 1, &g) == 0);
+            assert(!memcmp(&g, &last[lib], sizeof g));
+        }
+    }
+    read_log();assert(strstr(log_text, "phase=loading-saved") && strstr(log_text, "cache_hit=1"));
+}
 static void check_filename_titles(void)
 {
     static const struct {const char *filename, *title;uint32_t bucket;} cases[] = {
@@ -65,7 +95,8 @@ int main(int argc, char **argv)
     assert(!x6_fs_open("F:/../elsewhere", "rb") && !x6_fs_open("B:/x6/LIBRARY.IDX", "rb"));
     assert(!x6_path_normalize(normalized, "F:/x6/../../elsewhere"));
     x6_libraries_progress(progress);
-    int32_t status = x6_libraries_build();assert(status == 0);
+    int32_t status = x6_libraries_start();assert(status == 0);
+    assert(!x6_libraries_scan_info()->cache_hit); /* No saved index on first boot. */
     const struct x6_scan_info *scan = x6_libraries_scan_info();
     assert(scan->phase == X6_SCAN_READY && !scan->errors && saw_running_count && progress_calls > 10);
     assert(scan->log_status == X6_LOG_SAVED);read_log();
@@ -135,6 +166,42 @@ int main(int argc, char **argv)
     }
     assert(x6_test_opens == x6_test_closes);
     assert(x6_test_file_opens == x6_test_file_closes);
+    check_saved_reload(counts);
+    if (argc == 3) {
+        /* A user's new/removal ROM operation takes effect on explicit rescan;
+           cached boots keep their saved view without probing source folders. */
+        char new_rom[2048];snprintf(new_rom, sizeof new_rom, "%s/roms/nes/New Arrival.nes", x6_test_root);
+        FILE *added = fopen(new_rom, "wb");assert(added);
+        const unsigned char header[16] = {'N', 'E', 'S', 0x1a};
+        assert(fwrite(header, 1, sizeof header, added) == sizeof header);assert(fclose(added) == 0);
+        check_saved_reload(counts);
+        assert(x6_libraries_build() == 0);++counts[X6_LIBRARY_NES];check_saved_reload(counts);
+        assert(remove(new_rom) == 0);check_saved_reload(counts);
+        assert(x6_libraries_build() == 0);--counts[X6_LIBRARY_NES];check_saved_reload(counts);
+        /* Broken footer/version, metadata and saved sort keys all rebuild.
+           These edits touch only the temporary output index. */
+        const long corrupt[] = {-36, -32, -28, -1};
+        for (uint32_t i = 0; i < sizeof corrupt / sizeof corrupt[0]; ++i) {
+            damage_cache(corrupt[i], SEEK_END);
+            assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
+            check_saved_reload(counts);
+        }
+        damage_cache(0, SEEK_SET);
+        assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
+        uint32_t records = 0;for (uint32_t lib = 1; lib < X6_LIBRARY_COUNT; ++lib) records += counts[lib];
+        damage_cache((long)records * sizeof(struct x6_game), SEEK_SET);
+        assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
+        char cache_path[2048];snprintf(cache_path, sizeof cache_path, "%s/x6/LIBRARY.IDX", x6_test_output);
+        FILE *f = fopen(cache_path, "wb");assert(f);assert(fputs("old or interrupted index", f) >= 0);assert(fclose(f) == 0);
+        assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
+        x6_test_fail_cache_read = 1;assert(x6_libraries_start() == 0);x6_test_fail_cache_read = 0;
+        assert(!x6_libraries_scan_info()->cache_hit);
+        x6_test_fail_index_write = 1;assert(x6_libraries_build() < 0);x6_test_fail_index_write = 0;
+        assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
+        x6_test_fail_footer_write = 1;assert(x6_libraries_build() < 0);x6_test_fail_footer_write = 0;
+        assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
+        check_saved_reload(counts);
+    }
     /* Cache edits cannot redirect a launch through stale metadata. */
     if (counts[X6_LIBRARY_STOCK]) {
         char path[2048];snprintf(path, sizeof path, "%s/x6/LIBRARY.IDX", x6_test_output);
@@ -163,6 +230,7 @@ int main(int argc, char **argv)
         x6_test_fail_title_read = 1;assert(x6_libraries_build() > 0);x6_test_fail_title_read = 0;
         read_log();assert(strstr(log_text, "operation=title-read result=-1"));
         assert(strstr(log_text, "arcade-titles.tsv") && x6_libraries_scan_info()->errors & X6_SCAN_TITLE);
+        assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
         /* Diagnostics cannot turn successful discovery into an error if the
            log itself cannot be created or written. */
         x6_test_fail_log_open = 1;assert(x6_libraries_build() == 0);x6_test_fail_log_open = 0;
@@ -173,7 +241,7 @@ int main(int argc, char **argv)
         assert(x6_libraries_scan_info()->log_status == X6_LOG_IO_FAILED);read_log();
         assert(strstr(log_text, "event=log-final-retry") && strstr(log_text, "previous_close=5") && strstr(log_text, "phase=ready"));
         char module[2048];snprintf(module, sizeof module, "%s/x6/stock/sfc.mod", x6_test_output);
-        assert(remove(module) == 0);assert(x6_libraries_build() == 0);
+        assert(remove(module) == 0);assert(x6_libraries_start() == 0 && !x6_libraries_scan_info()->cache_hit);
         struct x6_game g;assert(x6_libraries_game(X6_LIBRARY_SNES, 0, &g) == 0);
         assert(g.available == X6_GAME_ENGINE);
         assert(x6_test_opens == x6_test_closes && x6_test_file_opens == x6_test_file_closes);
@@ -183,8 +251,13 @@ int main(int argc, char **argv)
         failure.phase = X6_SCAN_FAILED;failure.errors = X6_SCAN_PATH;failure.error_code = -2;
         assert(x6_scan_log_checkpoint(&failure) == X6_LOG_SAVED);read_log();
         assert(strstr(log_text, "first-error-preserved") && strstr(log_text, "phase=failed"));
+        const char *original_root = x6_test_root;x6_test_root = x6_test_output;
+        assert(x6_libraries_build() == 0);
+        uint32_t empty[X6_LIBRARY_COUNT] = {0};check_saved_reload(empty);
+        x6_test_root = original_root;
     }
     puts("PASS: bounded SD cache, complete multi-thousand catalog, every page/index reachable once, metadata/overrides, per-library return and closed handles; no emulator execution");
     puts("PASS: persisted startup/error checkpoints, raw I/O results, first-error preservation, 64 KiB log bound, and nonfatal log failures");
+    puts("PASS: saved index reload without ROM opens or directory scans; corrupt/old/interrupted index recovery, write failures and engine changes");
     return 0;
 }

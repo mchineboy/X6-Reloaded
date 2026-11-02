@@ -543,7 +543,7 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
         const struct x6_host_services *svc;
         const uint8_t *src = (const uint8_t *)host->resource_path + 8;uint8_t *dst = (uint8_t *)&svc;
         for (uint32_t i = 0; i < sizeof svc; ++i) dst[i] = src[i];
-        if (svc && svc->version >= 1 && svc->version <= 8) host_services = svc;
+        if (svc && svc->version >= 1 && svc->version <= 9) host_services = svc;
         copy_path(resource_path, sizeof(resource_path), rom_directory, PATH_SIZE);
     } else if (host->resource_path[0]) {
         if (!copy_path(resource_path, sizeof(resource_path), host->resource_path, sizeof(host->resource_path))) {
@@ -665,15 +665,23 @@ static void frame_menu(uint32_t render)
 }
 
 /* Settings screen: items adjusted with Left/Right (or A), B/Select returns and saves. */
-enum { SET_MUSIC, SET_CLICKS, SET_BRIGHTNESS, SET_BLANK, SET_POWEROFF, SET_COUNT };
+enum { SET_MUSIC, SET_CLICKS, SET_BRIGHTNESS, SET_BLANK, SET_POWEROFF, SET_RESCAN, SET_COUNT };
 static void frame_settings(uint32_t render)
 {
     static const char *const tunes[X6_TUNE_COUNT] = {"Off", "Chiptune", "Techno", "Rock"};
     static char lines[SET_COUNT][40];
-    static const char *const names[SET_COUNT] = {"Music", "Menu clicks", "Brightness", "Screen blank", "Auto power off"};
+    static const char *const names[SET_COUNT] = {"Music", "Menu clicks", "Brightness", "Screen blank", "Auto power off", "Rescan library"};
+    uint32_t can_rescan = host_services && host_services->version >= 9 && host_services->request_rescan;
+    uint32_t count = can_rescan ? SET_COUNT : SET_RESCAN;
     uint32_t pressed = buttons[0] & ~settings_prev;settings_prev = buttons[0];
-    if (pressed & X6_BTN_UP) {settings_selected = (settings_selected + SET_COUNT - 1) % SET_COUNT;ui_click();}
-    if (pressed & X6_BTN_DOWN) {settings_selected = (settings_selected + 1) % SET_COUNT;ui_click();}
+    if (pressed & X6_BTN_UP) {settings_selected = (settings_selected + count - 1) % count;ui_click();}
+    if (pressed & X6_BTN_DOWN) {settings_selected = (settings_selected + 1) % count;ui_click();}
+    if (settings_selected == SET_RESCAN && (pressed & X6_BTN_A)) {
+        settings_save();
+        if (!host_services->request_rescan()) mode = MODE_HANDOFF;
+        else {open_browser();x6_menu_notice(&menu, "Rescan request failed");}
+        return;
+    }
     if (pressed & (X6_BTN_LEFT | X6_BTN_RIGHT | X6_BTN_A)) {
         int32_t d = (pressed & X6_BTN_LEFT) ? -1 : 1;
         switch (settings_selected) {
@@ -690,9 +698,10 @@ static void frame_settings(uint32_t render)
         music_frame(settings.music);
         return;
     }
-    for (uint32_t i = 0; i < SET_COUNT; ++i) {
+    for (uint32_t i = 0; i < count; ++i) {
         char value[16];uint32_t n = 0;const char *v = value;
         switch (i) {
+        case SET_RESCAN: v = "A: Start";break;
         case SET_MUSIC: v = tunes[settings.music % X6_TUNE_COUNT];break;
         case SET_CLICKS: v = settings.clicks ? "On" : "Off";break;
         case SET_BRIGHTNESS: value[n++] = (char)('0' + (settings.brightness + 1) / 10 % 10);value[n++] = (char)('0' + (settings.brightness + 1) % 10);
@@ -713,9 +722,10 @@ static void frame_settings(uint32_t render)
     struct x6_surface s;
     if (render && surface_for_frame(&s)) {
         const char *items[SET_COUNT];
-        for (uint32_t i = 0; i < SET_COUNT; ++i) items[i] = lines[i];
-        x6_ui_draw_settings(&s, items, SET_COUNT, settings_selected,
-                            host_services ? 0 : "Brightness and timers need the X6 shell");
+        for (uint32_t i = 0; i < count; ++i) items[i] = lines[i];
+        x6_ui_draw_settings(&s, items, count, settings_selected,
+            settings_selected == SET_RESCAN ? "Press A after adding or removing ROMs"
+                : host_services ? 0 : "Brightness and timers need the X6 shell");
     }
     music_frame(settings.music);
 }

@@ -66,6 +66,8 @@ int main(int argc, char **argv)
     x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "scan-progress");
     scan.phase = X6_SCAN_SORTING;scan.checked = 5180;scan.indexed = 5164;
     x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "scan-sorting");
+    scan.phase = X6_SCAN_CACHED;scan.checked = scan.indexed = 0;
+    x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "saved-library");
     scan.phase = X6_SCAN_FAILED;scan.errors = X6_SCAN_OPEN;scan.error_code = -1;
     x6_ui_draw_scan(&surface, &scan);guard_check();save(out, "scan-error");
 
@@ -224,8 +226,10 @@ int main(int argc, char **argv)
     x6_ui_draw_loading(&surface, &five[2]);guard_check();save(out, "loading");
 
     const char *settings[] = {"Music\tTechno", "Menu clicks\tOn", "Brightness\t13 / 16",
-                              "Screen blank\tNever", "Auto power off\t5 min"};
+                              "Screen blank\tNever", "Auto power off\t5 min", "Rescan library\tA: Start"};
     x6_ui_draw_settings(&surface, settings, 5, 2, 0);guard_check();save(out, "settings");
+    x6_ui_draw_settings(&surface, settings, 6, 5, "Press A after adding or removing ROMs");
+    guard_check();save(out, "rescan-settings");
     const char *paused[] = {"Resume", "Restart", "Difficulty: Normal", "Rapid fire: 15 Hz", "Rapid buttons: All", "Back to menu"};
     x6_ui_draw_pause(&surface, "Donkey Kong", paused, 6, 0, 0, 1);guard_check();save(out, "pause");
 

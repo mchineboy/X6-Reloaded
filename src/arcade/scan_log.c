@@ -30,8 +30,8 @@ static void signed_value(int32_t n)
 static const char *phase(uint32_t n)
 {
     static const char *const names[] = {"preparing", "titles", "cache-open", "scanning",
-        "cache-close", "sorting", "ready", "failed", "opening-menu"};
-    return n <= X6_SCAN_MENU ? names[n] : "unknown";
+        "cache-close", "sorting", "ready", "failed", "opening-menu", "loading-saved"};
+    return n <= X6_SCAN_CACHED ? names[n] : "unknown";
 }
 static void prefix(const char *event, const struct x6_scan_info *p)
 {
@@ -40,6 +40,7 @@ static void prefix(const char *event, const struct x6_scan_info *p)
         text(" phase=");text(phase(p->phase));text(" library=");text(x6_library_name(p->library));
         text(" checked=");value(p->checked);text(" indexed=");value(p->indexed);
         text(" flags=");value(p->errors);
+        text(" cache_hit=");value(p->cache_hit);
     }
 }
 static void flush(void)
