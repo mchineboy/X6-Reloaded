@@ -7,6 +7,7 @@
 #include "x6_directory.h"
 #include "x6_runtime.h"
 #include "x6_rom_file.h"
+#include "x6_scan_log.h"
 #define LIMIT 8192u
 #define CACHE "F:/x6/LIBRARY.IDX" /* 8.3 creation name for the stock filesystem. */
 struct slot {char title[40];uint32_t offset, library, checksum;};
@@ -35,24 +36,35 @@ static void publish(uint32_t phase, uint32_t library, const char *directory)
     scan_info.phase = phase;scan_info.library = library;
     scan_info.indexed = used;scan_info.errors = status;
     if (directory) copy(scan_info.directory, sizeof scan_info.directory, directory);
+    scan_info.log_status = x6_scan_log_checkpoint(&scan_info);
     if (progress) progress(&scan_info);
 }
 static void failure(uint32_t flag, int32_t code, const char *path)
 {
+    uint32_t fresh = flag & ~status;
     status |= flag;
     if (!scan_info.error_code || (flag & (X6_SCAN_OPEN | X6_SCAN_WRITE | X6_SCAN_CLOSE_FILE))) {
         scan_info.error_code = code;copy(scan_info.error_path, sizeof scan_info.error_path, path);
     }
+    scan_info.indexed = used;scan_info.errors = status;
+    if (fresh) x6_scan_log_failure(&scan_info, flag, code, path);
 }
 static uint32_t present(const char *path)
 {
-    void *f = x6_fs_open(path, "rb");if (!f) return 0;return x6_fs_close(f) == 0;
+    void *f = x6_fs_open(path, "rb");
+    if (!f) {x6_scan_log_io("module-open", path, 0, 1, &scan_info);return 0;}
+    int32_t result = x6_fs_close(f);
+    x6_scan_log_io("module-close", path, result, 0, &scan_info);return result == 0;
 }
 static int32_t append(void *file, uint32_t library, struct x6_game *g)
 {
     if (used == LIMIT) {failure(X6_SCAN_LIMIT, -5, g->path);return -1;}
     x6_titles_apply(g, library);
-    if (x6_fs_write(g, 1, sizeof *g, file) != sizeof *g) {failure(X6_SCAN_WRITE, -2, CACHE);return -1;}
+    uint32_t written = x6_fs_write(g, 1, sizeof *g, file);
+    if (written != sizeof *g) {
+        x6_scan_log_io("cache-write", CACHE, (int32_t)written, sizeof *g, &scan_info);
+        failure(X6_SCAN_WRITE, -2, CACHE);return -1;
+    }
     struct slot *s = &slots[used];copy(s->title, sizeof s->title, g->title);
     s->offset = used * sizeof *g;s->library = library;s->checksum = checksum(g);++used;
     if (used % 16u == 0) publish(X6_SCAN_SCANNING, scan_info.library, 0);
@@ -113,11 +125,13 @@ static void sift(uint32_t at, uint32_t end)
 int32_t x6_libraries_build(void)
 {
     used = status = 0;scan_info = (struct x6_scan_info){0};
+    scan_info.log_status = x6_scan_log_begin();
     for (uint32_t i = 0; i < X6_LIBRARY_COUNT; ++i) counts[i] = starts[i] = 0;
     publish(X6_SCAN_TITLES, X6_LIBRARY_STOCK, "F:/x6/");
     if (x6_titles_load()) failure(X6_SCAN_TITLE, -1, "F:/x6/");
     publish(X6_SCAN_OPENING, X6_LIBRARY_STOCK, CACHE);
     void *file = x6_fs_open(CACHE, "wb");
+    x6_scan_log_io("cache-open", CACHE, file ? 1 : 0, 1, &scan_info);
     if (!file) {failure(X6_SCAN_OPEN, -1, CACHE);publish(X6_SCAN_FAILED, X6_LIBRARY_STOCK, CACHE);return -1;}
     publish(X6_SCAN_SCANNING, X6_LIBRARY_STOCK, "F:/game/mame");
     if (present(modules[X6_LIBRARY_STOCK])) {
@@ -140,13 +154,16 @@ int32_t x6_libraries_build(void)
             s.directory = roots[lib][root];
             publish(X6_SCAN_SCANNING, lib, s.directory);
             int32_t result = x6_directory_walk(s.directory, found, &s);
+            x6_scan_log_io("directory-scan", s.directory, result, 0, &scan_info);
             if (result < -1) failure(X6_SCAN_DIRECTORY, result, s.directory);
             if (result == -4) failure(X6_SCAN_CLOSE_DIR, result, s.directory);
             if (result == -4 || result == -5) break;
         }
     }
     publish(X6_SCAN_FINALIZING, scan_info.library, CACHE);
-    if (x6_fs_close(file) != 0) failure(X6_SCAN_CLOSE_FILE, -3, CACHE);
+    int32_t closed = x6_fs_close(file);
+    x6_scan_log_io("cache-close", CACHE, closed, 0, &scan_info);
+    if (closed != 0) failure(X6_SCAN_CLOSE_FILE, -3, CACHE);
     if (status & (X6_SCAN_WRITE | X6_SCAN_CLOSE_FILE)) {used = 0;publish(X6_SCAN_FAILED, scan_info.library, CACHE);return -1;}
     publish(X6_SCAN_SORTING, scan_info.library, 0);
     for (uint32_t i = used / 2; i > 0; --i) sift(i - 1, used);

@@ -1,6 +1,7 @@
 #include "x6_titles.h"
 #include "x6_runtime.h"
 #include "x6_rom_file.h"
+#include "x6_scan_log.h"
 static char arcade[131072], overrides[524288];
 struct alias {uint32_t hash, offset;};
 static struct alias aliases[16384];
@@ -20,9 +21,19 @@ static void copy(char *out, uint32_t cap, const char *in, uint32_t length)
 }
 static uint32_t load(char *out, uint32_t cap, const char *path)
 {
-    out[0] = 0;void *f = x6_fs_open(path, "rb");if (!f) return 0;
+    out[0] = 0;void *f = x6_fs_open(path, "rb");
+    x6_scan_log_io("optional-title-open", path, f ? 1 : 0, 1, 0);
+    if (!f) return 0;
     uint32_t n = x6_fs_read(out, 1, cap - 1, f);char extra;
+    if (n > cap - 1) {
+        int32_t closed = x6_fs_close(f);out[0] = 0;
+        x6_scan_log_io("title-read", path, (int32_t)n, cap - 1, 0);
+        if (closed) x6_scan_log_io("title-close", path, closed, 0, 0);
+        return 1;
+    }
     uint32_t more = x6_fs_read(&extra, 1, 1, f);int32_t closed = x6_fs_close(f);
+    if (more) x6_scan_log_io("title-capacity", path, (int32_t)more, 0, 0);
+    if (closed) x6_scan_log_io("title-close", path, closed, 0, 0);
     if (more || closed) {out[0] = 0;return 1;}
     out[n] = 0;return 0;
 }

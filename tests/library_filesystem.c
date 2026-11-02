@@ -12,6 +12,11 @@ const char *x6_test_root, *x6_test_output;
 uint32_t x6_test_opens, x6_test_closes;
 uint32_t x6_test_file_opens, x6_test_file_closes, x6_test_fail_write;
 uint32_t x6_test_fail_cache_open;
+uint32_t x6_test_fail_log_open, x6_test_fail_log_write, x6_test_fail_cache_close;
+uint32_t x6_test_fail_title_read;
+uint32_t x6_test_fail_log_close;
+static FILE *cache_writer, *log_writer;
+static FILE *title_reader;
 struct directory {DIR *dir;char path[2048];uint8_t entry[272];};
 static int native(char *out, const char *path)
 {
@@ -48,13 +53,30 @@ void *x6_fs_open_raw(const char *path, const char *mode)
 {
     char p[2048];
     assert(path[0] == 'F' && !strchr(path, '/')); /* The former permissive adapter hid this boundary mismatch. */
-    assert(!strcmp(mode, "rb") || (!strcmp(mode, "wb") && !strcmp(path, "F:\\x6\\LIBRARY.IDX")));
-    if (x6_test_fail_cache_open && !strcmp(mode, "wb")) return 0;
+    uint32_t cache = !strcmp(path, "F:\\x6\\LIBRARY.IDX"), log = !strcmp(path, "F:\\x6\\SCAN.LOG");
+    assert(!strcmp(mode, "rb") || (!strcmp(mode, "wb") && (cache || log)));
+    if (!strcmp(mode, "wb") && ((cache && x6_test_fail_cache_open) || (log && x6_test_fail_log_open))) return 0;
     FILE *f = native(p, path) ? fopen(p, mode) : 0;
     if (f) ++x6_test_file_opens;
+    if (f && !strcmp(mode, "wb")) {if (cache) cache_writer = f;if (log) log_writer = f;}
+    if (f && strstr(path, ".tsv")) title_reader = f;
     return f;
 }
-uint32_t x6_fs_read(void *out, uint32_t size, uint32_t n, void *f) {return (uint32_t)fread(out, size, n, f);}
-uint32_t x6_fs_write(const void *in, uint32_t size, uint32_t n, void *f) {return x6_test_fail_write ? 0 : (uint32_t)fwrite(in, size, n, f);}
+uint32_t x6_fs_read(void *out, uint32_t size, uint32_t n, void *f)
+{
+    return f == title_reader && x6_test_fail_title_read ? 0xffffffffu : (uint32_t)fread(out, size, n, f);
+}
+uint32_t x6_fs_write(const void *in, uint32_t size, uint32_t n, void *f)
+{
+    return (f == cache_writer && x6_test_fail_write) || (f == log_writer && x6_test_fail_log_write)
+        ? 0 : (uint32_t)fwrite(in, size, n, f);
+}
 int32_t x6_fs_seek(void *f, int32_t offset, int32_t origin) {return fseek(f, offset, origin);}
-int32_t x6_fs_close(void *f) {++x6_test_file_closes;return fclose(f);}
+int32_t x6_fs_close(void *f)
+{
+    uint32_t cache = f == cache_writer, log = f == log_writer;
+    if (cache) cache_writer = 0;if (f == log_writer) log_writer = 0;
+    if (f == title_reader) title_reader = 0;
+    ++x6_test_file_closes;int32_t result = fclose(f);
+    return cache && x6_test_fail_cache_close ? -7 : log && x6_test_fail_log_close ? 5 : result;
+}

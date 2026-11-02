@@ -17,6 +17,7 @@ struct x6_scan_info {
     uint32_t phase, library, checked, indexed, errors;
     int32_t error_code;
     char directory[96], error_path[128];
+    uint32_t log_status; /* v8: enum x6_scan_log_status; diagnostic failure is nonfatal */
 };
 const char *x6_scan_error_message(const struct x6_scan_info *scan);
 void x6_ui_draw_scan(struct x6_surface *surface, const struct x6_scan_info *scan);

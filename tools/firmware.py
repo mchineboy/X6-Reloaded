@@ -136,7 +136,7 @@ def build(root, firmware, toolchain):
     timing = out / 'timing.o'
     subprocess.run([gcc, *flags, '-c', str(root / 'src/arcade/timing.c'), '-o', str(timing)], check=True)
     discovery = []
-    for source in ['src/runtime/directory.c', 'src/runtime/path.c', 'src/runtime/open.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c', 'src/arcade/libraries.c']:
+    for source in ['src/runtime/directory.c', 'src/runtime/path.c', 'src/runtime/open.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c', 'src/arcade/libraries.c', 'src/arcade/scan_log.c']:
         obj = out / (Path(source).stem + '.o')
         subprocess.run([gcc, *flags, '-c', str(root / source), '-o', str(obj)], check=True)
         discovery.append(str(obj))

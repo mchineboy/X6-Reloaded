@@ -50,7 +50,7 @@ def main():
     args = parser.parse_args()
     out = ROOT / 'build/stock-tests';out.mkdir(parents=True, exist_ok=True)
     binary = out / 'libraries-test'
-    sources = ['src/arcade/libraries.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c',
+    sources = ['src/arcade/libraries.c', 'src/arcade/stock_catalog.c', 'src/arcade/titles.c', 'src/arcade/scan_log.c',
                'src/runtime/directory.c', 'src/runtime/path.c', 'src/runtime/open.c', 'src/ui/library.c', 'src/ui/browser.c',
                'tests/library_filesystem.c', 'tests/libraries_host.c']
     subprocess.run(['clang', '-std=c11', '-D_DEFAULT_SOURCE', '-Wall', '-Wextra', '-Werror', '-O1', '-g',

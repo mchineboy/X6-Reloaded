@@ -12,6 +12,7 @@
 #include "x6_library.h"
 #include "x6_titles.h"
 #include "x6_path.h"
+#include "x6_scan_log.h"
 
 #define mod_install_(p, m)   SVC(0x2805, p, m, 0, 0)
 #define mod_open_(id, m)     SVC(0x2800, id, m, 0, 0)
@@ -51,9 +52,20 @@ static uint32_t original_library = X6_LIBRARY_STOCK, library_status;
 static uint32_t stock_w, stock_h, stock_pitch, stock_video_error;
 #define STOCK_PAGES ((X6_STOCK_MAX_SIDE * X6_STOCK_MAX_SIDE * 4u) / 1024u)
 
-void *x6_directory_open_raw(const char *path) {return (void *)SVC(0x260d, path, 0, 0, 0);}
+static char active_directory[256];
+void *x6_directory_open_raw(const char *path)
+{
+    uint32_t n = 0;while (path[n] && n + 1 < sizeof active_directory) {active_directory[n] = path[n];++n;}
+    active_directory[n] = 0;
+    void *handle = (void *)SVC(0x260d, path, 0, 0, 0);
+    x6_scan_log_io("directory-open-raw", path, handle ? 1 : 0, 1, 0);return handle;
+}
 const uint8_t *x6_directory_read_raw(void *handle) {return (const uint8_t *)SVC(0x260f, handle, 0, 0, 0);}
-int32_t x6_directory_close_raw(void *handle) {return (int32_t)SVC(0x260e, handle, 0, 0, 0);}
+int32_t x6_directory_close_raw(void *handle)
+{
+    int32_t result = (int32_t)SVC(0x260e, handle, 0, 0, 0);
+    x6_scan_log_io("directory-close-raw", active_directory, result, 0, 0);return result;
+}
 void *x6_fs_open_raw(const char *path, const char *mode) {return (void *)fopen_(path, mode);}
 uint32_t x6_fs_read(void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2604, data, size, count, handle);}
 uint32_t x6_fs_write(const void *data, uint32_t size, uint32_t count, void *handle) {return SVC(0x2605, data, size, count, handle);}
@@ -245,7 +257,7 @@ static int32_t svc_request_stock_game(uint32_t index)
 static uint32_t svc_restore_stock_game(void) {return original_selected;}
 static uint32_t svc_library_status(void) {return library_status;}
 static const struct x6_host_services host_services = {
-    7, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
+    8, svc_set_brightness, svc_set_idle, svc_stock_available, svc_request_stock, svc_restore_library,
     svc_stock_count, svc_stock_metadata, svc_request_stock_game, svc_restore_stock_game, x6_directory_walk,
     &x6_libraries_provider, svc_request_library_game, svc_library_status, x6_titles_apply, x6_libraries_scan_info
 };

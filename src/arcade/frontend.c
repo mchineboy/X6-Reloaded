@@ -543,7 +543,7 @@ static int32_t load_impl(const struct x6_host_callbacks *host, const char *path)
         const struct x6_host_services *svc;
         const uint8_t *src = (const uint8_t *)host->resource_path + 8;uint8_t *dst = (uint8_t *)&svc;
         for (uint32_t i = 0; i < sizeof svc; ++i) dst[i] = src[i];
-        if (svc && svc->version >= 1 && svc->version <= 7) host_services = svc;
+        if (svc && svc->version >= 1 && svc->version <= 8) host_services = svc;
         copy_path(resource_path, sizeof(resource_path), rom_directory, PATH_SIZE);
     } else if (host->resource_path[0]) {
         if (!copy_path(resource_path, sizeof(resource_path), host->resource_path, sizeof(host->resource_path))) {

@@ -1,6 +1,7 @@
 /* Pure, bounded startup progress renderer. Counts are measured; the moving
  * segment is indeterminate because directory totals are not known in advance. */
 #include "x6_library.h"
+#include "x6_scan_log.h"
 static void number(char *out, uint32_t value, const char *suffix)
 {
     char reverse[12];uint32_t n = 0, at = 0;
@@ -42,5 +43,7 @@ void x6_ui_draw_scan(struct x6_surface *s, const struct x6_scan_info *p)
         number(line, p->errors, "");
         x6_text_draw(s, 16, 219, "Diagnostic code:", 1, 0xffa0a0a0u);
         x6_text_draw(s, 100, 219, line, 1, 0xffffbe4cu);
+        if (p->log_status != X6_LOG_UNKNOWN)
+            x6_text_draw(s, 160, 219, p->log_status == X6_LOG_SAVED ? "SCAN.LOG saved" : "Log unavailable", 1, 0xffa0a0a0u);
     }
 }

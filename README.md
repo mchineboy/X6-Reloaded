@@ -184,6 +184,16 @@ directory at 4,096 directory entries. A failed scan shows the actual failed
 operation/path and a diagnostic code in the menu; it is never used as an
 in-progress message. Saves, instructions and hidden files are excluded.
 
+Startup diagnostics are written to **`x6/SCAN.LOG`**. The last-boot log records
+scan stages, folders, checked/found counts, cache operations and error results.
+Important checkpoints are closed so an early return retains the failed stage;
+cache-write and directory-close records include their actual return values.
+Application diagnostic codes are labelled separately from operating-system
+errors. The log is bounded to 64 KiB, preserves the first failure, and contains
+no ROM contents or save data. Each boot replaces it. If the card cannot accept
+the log write, discovery continues and the on-screen error remains available.
+After a failed boot, power off and mount the card to inspect `x6/SCAN.LOG`.
+
 ## Add games without rebuilding
 
 1. Copy your compatible ROM into the appropriate folder on the SD card:
